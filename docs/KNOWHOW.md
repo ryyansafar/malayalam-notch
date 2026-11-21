@@ -12,7 +12,7 @@ One product: **Malayalam in the notch**. Drag a WhatsApp voice note (or any audi
 | `sarvam/client.js` | Sarvam STT (`saaras:v4`, modes transcribe/translit/translate/codemix/verbatim), Mayura text translate, Bulbul TTS; cache/replay in `sarvam/cache/` |
 | `smallest/client.js` | smallest.ai TTS (Lightning, optional second voice) |
 | `shared/audio-sniff.js`, `audio-mime.js` | magic-byte audio sniffing, duration, lossless Ogg cut |
-| `public/notch.*`, `notch-app/NotchApp.swift` | the island page + native macOS shell (drop zone, drag monitor, hover expand) |
+| `malayalam-notch/Sources/*.swift`, `build.sh` | the native notch app (SwiftUI): `App.swift` panel and cursor poll, `NotchModel.swift` geometry/shape/springs, `NotchRootView.swift` island, `MalayalamView.swift` Voice tab, `Assistant.swift` Assistant tab, `NowPlayingView.swift`, `MalayalamIntent.swift` local command rules |
 | `public/dashboard.*` | the desk: drop zone, latest note, archive |
 | `public/phone.*` | hold-to-talk phone mic page |
 | `docs/devin-tasks/NN-*.md` | the briefs given to Devin sessions (history) |

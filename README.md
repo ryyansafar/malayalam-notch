@@ -2,7 +2,7 @@
 
 **Drag a WhatsApp voice note toward the MacBook notch. The island opens, the Malayalam is transcribed and translated, and the answer can be spoken back in another language.**
 
-Built at Hackathoni (Alappuzha, 21-22 Nov 2026). ES modules, Node 20 or newer, one runtime dependency (a QR code library), and a native Swift shell for the notch.
+Built at Hackathoni (Alappuzha, 21-22 Nov 2026). A native SwiftUI app for the notch (`malayalam-notch/`, written from scratch, no Xcode project needed) plus a Node 20 server (one runtime dependency, a QR code library) that talks to Sarvam and smallest.ai.
 
 ## What it is
 
@@ -22,7 +22,8 @@ npm install
 cp .env.example .env      # optional; never commit .env
 npm test
 npm start                 # server on :3000
-npm run notch             # builds notch-app/NotchApp.swift with swiftc and launches the island
+npm run notch             # builds malayalam-notch/ with swiftc into build/Malayalam Notch.app and launches it
+scripts/notch.sh toggle   # start/stop the server and the notch together
 ```
 
 - `http://localhost:3000/` — landing page (QR to the phone mic page, link to the desk).
@@ -35,9 +36,18 @@ Voice notes also arrive automatically: the server watches `~/Downloads/malayalam
 
 ## The notch
 
-A borderless, non-activating panel is parked over the notch (floating pill on notch-less Macs; the size always comes from `NSScreen`). Collapsed, it merges with the notch — a waveform glyph left, today's note count right. It opens on hover, expands early when a file drag approaches, shows the received line instantly, a shimmer while translating, and the result card. Right-click for Quit / Mute / Open desk.
+`malayalam-notch/` is a native macOS app (SwiftUI, built with `malayalam-notch/build.sh`; copy the result to `~/Applications`). It never shows a Dock icon. Sizes come from `NSScreen`, so it fits any notched MacBook and falls back to a floating pill elsewhere.
 
-The window itself never animates — it jumps to the needed size while the island shape morphs inside it with sampled SwiftUI spring curves (`docs/NOTCH-REFERENCE.md`). An always-on native drop zone sits over the notch so a real Finder drag can land natively; a global drag monitor opens the island while the file is still on its way.
+- **Closed:** exactly the width of the physical notch. Nothing is drawn while idle.
+- **Live activity:** when music plays or a note is being processed, the pill grows sideways by `2 x (notch height - 12) + 20` points, with 20x20 artwork on the left wing and a live equaliser on the right, and retracts when it stops.
+- **Open (hover, or a file drag approaching):** a 760 x 226 island with a tab bar and one card per feature.
+  - **Voice tab:** *Voice* (drop a voice note, hold to speak), *Translation* (Malayalam script, romanised line, English, speak/copy/mute, language and voice-engine choice: Sarvam Bulbul or smallest.ai Lightning) and *Now playing* (Music or Spotify: artwork, title, progress, previous/play/next).
+  - **Assistant tab:** a command bar (typed or spoken, English or Malayalam), quick-launch app icons, *Reminders* that speak aloud, a *Desktop* tidy-up with a plan and Undo, and clipboard translate.
+- **Voice commands** are understood on this Mac by plain rules (`Sources/MalayalamIntent.swift`): "open Calendar", "message Amma on WhatsApp saying I am late" (WhatsApp opens with the text ready; you press Send), "remind me to call Amma in 10 minutes", "set a timer for 5 minutes", "tidy my desktop", "pause".
+- **Window rules:** the window is created once at full size and never resized; only the shape inside morphs, with the open/close spring curves of the best notch apps (`docs/NOTCH-REFERENCE.md`). A cursor poll opens it on hover or when an audio file drag approaches (the screen edge itself triggers Mission Control, so the drop target sits below it, see `docs/DRAG-FINDINGS.md`).
+- **Permissions you will be asked for, once:** Microphone (hold to speak), Automation for Music/Spotify (now playing), Files (Desktop), Notifications (reminders).
+
+Right-click the island for Mute / Open desk / Quit.
 
 ## Accepted audio
 
@@ -91,8 +101,8 @@ sarvam/    client.js, record-fixtures.js, cache/  Sarvam client and recorded REP
 smallest/  client.js                            optional smallest.ai client
 server/    index.js, hub.js, qr.js, env.js        server, SSE hub + state, QR, .env loading
            archive.js, watcher.js, ingest.js      archive, folder watcher, ingest CLI
-public/    notch.*, dashboard.*, phone.*          the island page, the desk, the phone mic
-notch-app/ NotchApp.swift, Info.plist             native macOS notch shell (build is git-ignored)
+public/    dashboard.*, phone.*                   the desk and the phone mic page
+malayalam-notch/ Sources/*.swift, Info.plist, build.sh   the native notch app
 tools/dragtest/                                   closed-loop real-drag acceptance rig
 test/      node:test suites, no network, no keys
 docs/      DESIGN.md, DRAG-FINDINGS.md, SARVAM-FINDINGS.md, NOTCH-REFERENCE.md, ARCHITECTURE.md, RUNBOOK.md, KNOWHOW.md, devin-tasks/

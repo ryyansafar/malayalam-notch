@@ -17,15 +17,18 @@ final class NotchModel: ObservableObject {
     static let shared = NotchModel()
 
     // MARK: Geometry (points)
-    let openSize = CGSize(width: 640, height: 196)
+    let openSize = CGSize(width: 760, height: 226)
     let earInset: CGFloat = 20               // room either side for the concave ears
     var closedWidth: CGFloat = 288           // real notch width + wings, set from the screen
     var closedHeight: CGFloat = 32           // real notch height, set from the screen
     var notchWidth: CGFloat = 0              // 0 on a Mac without a notch
 
     // MARK: State
+    enum Tab { case home, assistant }
+    @Published var tab: Tab = .home
     @Published private(set) var isOpen = false
     @Published var isDragging = false        // an audio file drag is in flight near the notch
+    @Published var extended = false          // live activity: the closed pill grows sideways
     @Published var dropHover = false         // the file is over our drop target
     @Published var recording = false
     @Published var notesToday = 0
@@ -33,7 +36,9 @@ final class NotchModel: ObservableObject {
 
     var topRadius: CGFloat { isOpen ? 19 : 6 }
     var bottomRadius: CGFloat { isOpen ? 24 : 14 }
-    var shapeWidth: CGFloat { (isOpen ? openSize.width : closedWidth) }
+    /// Extra width while a live activity shows: the same rule the best notch apps use, 2*(notch height - 12) + 20.
+    var wingExtra: CGFloat { 2 * max(0, closedHeight - 12) + 20 }
+    var shapeWidth: CGFloat { isOpen ? openSize.width : closedWidth + (extended ? wingExtra : 0) }
     var shapeHeight: CGFloat { (isOpen ? openSize.height : closedHeight) }
 
     /// Window size: the open island plus ears and a little room for its shadow.

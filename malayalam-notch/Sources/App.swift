@@ -30,6 +30,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         measureScreen()
         buildPanel()
         refreshCount()
+        NowPlayingModel.shared.start()
+        AssistantModel.shared.start()
         model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -48,13 +50,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main
         guard let s = screen else { return }
         if s.safeAreaInsets.top > 0, let l = s.auxiliaryTopLeftArea, let r = s.auxiliaryTopRightArea {
-            model.notchWidth = s.frame.width - l.width - r.width
+            model.notchWidth = s.frame.width - l.width - r.width + 4   // +4 hides the seam against the real notch
             model.closedHeight = s.safeAreaInsets.top
         } else {
             model.notchWidth = 0
             model.closedHeight = 30
         }
-        model.closedWidth = max(model.notchWidth, 150) + 2 * 64   // wings left and right of the notch
+        model.closedWidth = model.notchWidth > 0 ? model.notchWidth : 185   // idle: exactly the notch, no wings
     }
 
     private func buildPanel() {
@@ -102,11 +104,14 @@ final class AppController: NSObject, NSApplicationDelegate {
         let topY = s.frame.maxY
         let midX = s.frame.midX
 
+        let live = NowPlayingModel.shared.isPlaying || MalayalamViewModel.shared.phase != .idle
+        if live != model.extended { withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { model.extended = live } }
+
         let mouseDown = NSEvent.pressedMouseButtons & 1 == 1
         model.isDragging = mouseDown && dragCarriesAudio()
 
         // Hover target: the closed pill; drag target: a wider, taller approach zone (never needs the edge).
-        let pillHalf = model.closedWidth / 2 + 6
+        let pillHalf = (model.closedWidth + (model.extended ? model.wingExtra : 0)) / 2 + 6
         let overPill = abs(loc.x - midX) < pillHalf && loc.y > topY - (model.closedHeight + 4)
         let nearForDrag = abs(loc.x - midX) < model.openSize.width / 2 && loc.y > topY - 170
         let openRect = abs(loc.x - midX) < model.openSize.width / 2 + 24 && loc.y > topY - (model.openSize.height + 28)

@@ -28,6 +28,7 @@ struct MalayalamNote: Equatable {
     var language = ""
     var ttsAudio: Data?
     var origin = ""
+    var voice = ""          // "sarvam · 699 ms" — which engine spoke the translation
 }
 
 @MainActor
@@ -44,6 +45,9 @@ final class MalayalamViewModel: NSObject, ObservableObject {
         didSet { UserDefaults.standard.set(targetLang, forKey: "malayalamTargetLang") }
     }
     @Published var muted = false
+    @Published var ttsProvider = UserDefaults.standard.string(forKey: "malayalamTtsProvider") ?? "sarvam" {
+        didSet { UserDefaults.standard.set(ttsProvider, forKey: "malayalamTtsProvider") }
+    }
 
     static let languages: [(code: String, name: String)] = [
         ("hi-IN", "Hindi"), ("en-IN", "English"), ("bn-IN", "Bengali"), ("od-IN", "Odia"), ("ta-IN", "Tamil"),
@@ -128,15 +132,25 @@ final class MalayalamViewModel: NSObject, ObservableObject {
     // MARK: Server
 
     private func translate(data: Data, mime: String, filename: String, origin: String, runCommands: Bool) async {
+        let body: [String: Any] = [
+            "audioBase64": data.base64EncodedString(), "mime": mime, "filename": filename,
+            "source": origin == "mic" ? "mic" : "notch_drop", "targetLang": targetLang, "ttsProvider": ttsProvider,
+        ]
+        await send(body: body, origin: origin, runCommands: runCommands)
+    }
+
+    /// Translate typed or copied text (Malayalam) and show it as a note.
+    func translateText(_ text: String) async {
+        let body: [String: Any] = ["text": text, "source": "text", "targetLang": targetLang, "ttsProvider": ttsProvider]
+        await send(body: body, origin: "text", runCommands: false)
+    }
+
+    private func send(body: [String: Any], origin: String, runCommands: Bool) async {
         phase = .translating
         var req = URLRequest(url: base.appendingPathComponent("api/shout"))
         req.httpMethod = "POST"
         req.timeoutInterval = 40
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = [
-            "audioBase64": data.base64EncodedString(), "mime": mime, "filename": filename,
-            "source": origin == "mic" ? "mic" : "notch_drop", "targetLang": targetLang,
-        ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
             let (respData, resp) = try await URLSession.shared.data(for: req)
@@ -151,14 +165,17 @@ final class MalayalamViewModel: NSObject, ObservableObject {
             n.language = (json["detectedLanguage"] as? String) ?? ""
             n.origin = origin
             if let b64 = json["ttsAudioBase64"] as? String { n.ttsAudio = Data(base64Encoded: b64) }
+            if let t = json["tts"] as? [String: Any], let p = t["provider"] as? String {
+                n.voice = p == "smallest" ? "smallest.ai" : "Sarvam"
+                if let ms = t["latencyMs"] as? Int { n.voice += " · \(ms) ms" }
+            }
             note = n
             status = ""
             phase = .idle
             if runCommands {
-                let intent = MalayalamIntentParser.parse(n.english)
-                let line = MalayalamActions.perform(intent)
-                actionLine = line.isEmpty ? "I heard: \(n.english)" : line
-                if line.isEmpty { play(n) }
+                // Voice command: let the assistant understand and act (local rules first, then the agent).
+                AssistantModel.shared.run(n.english, heard: n.sourceText)
+                actionLine = AssistantModel.shared.feedback
             } else {
                 play(n)
             }
@@ -186,19 +203,18 @@ final class MalayalamViewModel: NSObject, ObservableObject {
 
 // MARK: - View
 
+/// The expanded island: three areas side by side, one per feature.
 struct MalayalamView: View {
     @ObservedObject private var vm = MalayalamViewModel.shared
     @EnvironmentObject private var notch: NotchModel
     @State private var targeted = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            leftColumn
-                .frame(width: 168)
-            resultColumn
-                .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: 10) {
+            area("VOICE") { voiceArea }.frame(width: 176)
+            area("TRANSLATION", trailing: { badges }) { resultArea }.frame(maxWidth: .infinity)
+            area("NOW PLAYING") { NowPlayingView() }.frame(width: 214)
         }
-        .padding(.horizontal, 6)
         .animation(.smooth(duration: 0.3), value: vm.phase)
         .animation(.smooth(duration: 0.3), value: vm.note)
         .onChange(of: targeted) { _, isTargeted in notch.dropHover = isTargeted }
@@ -213,119 +229,140 @@ struct MalayalamView: View {
         }
     }
 
-    // Left: drop target + hold-to-talk mic
-    private var leftColumn: some View {
-        VStack(spacing: 10) {
+    // One rounded card per feature, with a small caption.
+    private func area<C: View, T: View>(_ title: String, @ViewBuilder trailing: () -> T = { EmptyView() },
+                                        @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(title).font(.system(size: 8.5, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                trailing()
+            }
+            content()
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+    }
+
+    // MARK: Voice area — drop a note, hold to speak
+    private var voiceArea: some View {
+        VStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.4, dash: [6, 5]))
                     .foregroundStyle(targeted ? MalayalamTheme.accent : Color.white.opacity(0.22))
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(targeted ? MalayalamTheme.accent.opacity(0.14) : Color.white.opacity(0.04))
-                    )
-                VStack(spacing: 6) {
+                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(targeted ? MalayalamTheme.accent.opacity(0.14) : Color.white.opacity(0.03)))
+                VStack(spacing: 4) {
                     Image(systemName: targeted ? "arrow.down.circle.fill" : "waveform")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 19, weight: .semibold))
                         .symbolEffect(.bounce, value: targeted)
                     Text(targeted ? "Release to translate" : "Drop a voice note")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11.5, weight: .semibold))
                     Text("WhatsApp .opus · .m4a · .mp3")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 .foregroundStyle(targeted ? MalayalamTheme.accent : .white)
             }
-            .frame(height: 84)
+            .frame(height: 78)
             .scaleEffect(targeted ? 1.03 : 1)
             .animation(.spring(response: 0.36, dampingFraction: 0.7), value: targeted)
-
             micButton
         }
     }
 
     private var micButton: some View {
         let recording = vm.phase == .recording
-        return HStack(spacing: 8) {
+        return HStack(spacing: 7) {
             Image(systemName: recording ? "waveform" : "mic.fill")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .symbolEffect(.variableColor.iterative, isActive: recording)
             Text(recording ? "Listening…" : "Hold to speak")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11.5, weight: .semibold))
         }
         .foregroundStyle(recording ? Color.black : .white)
-        .frame(maxWidth: .infinity, minHeight: 34)
+        .frame(maxWidth: .infinity, minHeight: 32)
         .background(Capsule().fill(recording ? MalayalamTheme.accent : Color.white.opacity(0.12)))
         .scaleEffect(recording ? 1.04 : 1)
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: recording)
         .contentShape(Capsule())
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             if pressing { vm.startRecording() } else { vm.stopRecording() }
+            notch.recording = pressing
         }, perform: {})
         .help("Hold and say a command, e.g. “open Calendar” or “message Amma on WhatsApp saying I’m late”")
     }
 
-    // Right: the result
-    private var resultColumn: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if vm.phase == .translating {
-                shimmer
-            } else if let n = vm.note {
-                HStack(spacing: 6) {
-                    badge(n.origin == "mic" ? "VOICE" : "VOICE NOTE")
-                    if !n.language.isEmpty { badge(n.language.uppercased()) }
-                    Spacer(minLength: 0)
-                }
-                if !n.sourceText.isEmpty {
-                    Text(n.sourceText)
-                        .font(.system(size: 21, weight: .semibold))
-                        .lineLimit(2).minimumScaleFactor(0.7)
-                }
-                if !n.romanText.isEmpty {
-                    Text(n.romanText)
-                        .font(.system(size: 12)).italic().foregroundStyle(.secondary).lineLimit(1)
-                }
-                Text(n.english)
-                    .font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(2)
-                Spacer(minLength: 2)
-                controls
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Malayalam, in your notch")
-                        .font(.system(size: 17, weight: .semibold))
-                    Text("Drop a WhatsApp voice note to read it in Malayalam, romanised and English. Or hold the mic and say “open Calendar” or “message Amma on WhatsApp saying I’m late”.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    controls
-                }
-            }
-            if !vm.status.isEmpty {
-                Text(vm.status).font(.system(size: 11)).foregroundStyle(.orange).lineLimit(2)
-            } else if !vm.actionLine.isEmpty {
-                Text(vm.actionLine).font(.system(size: 11, weight: .semibold)).foregroundStyle(MalayalamTheme.accent).lineLimit(2)
+    // MARK: Translation area — Malayalam, romanised, English, actions
+    @ViewBuilder private var badges: some View {
+        if let n = vm.note {
+            HStack(spacing: 5) {
+                badge(n.origin == "mic" ? "VOICE" : "VOICE NOTE")
+                if !n.language.isEmpty { badge(n.language.uppercased()) }
+                if !n.voice.isEmpty { badge(n.voice.uppercased()) }
             }
         }
     }
 
+    private var resultArea: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if vm.phase == .translating {
+                shimmer
+            } else if let n = vm.note {
+                if !n.sourceText.isEmpty {
+                    Text(n.sourceText).font(.system(size: 18, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.7)
+                }
+                if !n.romanText.isEmpty {
+                    Text(n.romanText).font(.system(size: 11)).italic().foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(n.english).font(.system(size: 13.5, weight: .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(2)
+            } else {
+                Text("Malayalam, in your notch").font(.system(size: 15, weight: .semibold))
+                Text("Drop a WhatsApp voice note to read it in Malayalam, romanised and English — or hold the mic and say “open Calendar” or “message Amma on WhatsApp saying I’m late”.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(4)
+            }
+            Spacer(minLength: 0)
+            if !vm.status.isEmpty {
+                Text(vm.status).font(.system(size: 10.5)).foregroundStyle(.orange).lineLimit(2)
+            } else if !vm.actionLine.isEmpty {
+                Text(vm.actionLine).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(MalayalamTheme.accent).lineLimit(2)
+            }
+            controls
+        }
+    }
+
     private var controls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             iconButton("speaker.wave.2.fill", help: "Speak the translation") { vm.play() }
                 .disabled(vm.note?.ttsAudio == nil)
             iconButton("doc.on.doc", help: "Copy the English") { vm.copyEnglish() }
                 .disabled(vm.note == nil)
             iconButton(vm.muted ? "speaker.slash.fill" : "speaker.fill", help: vm.muted ? "Unmute" : "Mute") { vm.muted.toggle() }
             Menu {
+                Button("Voice: Sarvam Bulbul") { vm.ttsProvider = "sarvam" }
+                Button("Voice: smallest.ai Lightning") { vm.ttsProvider = "smallest" }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "person.wave.2").font(.system(size: 11))
+                    Text(vm.ttsProvider == "smallest" ? "smallest" : "Sarvam").font(.system(size: 10.5, weight: .semibold))
+                }
+                .foregroundStyle(.white).padding(.horizontal, 9).frame(height: 26)
+                .background(Capsule().fill(Color.white.opacity(0.12)))
+            }
+            .menuStyle(.button).buttonStyle(.plain).fixedSize()
+            Menu {
                 ForEach(MalayalamViewModel.languages, id: \.code) { l in
                     Button(l.name) { vm.targetLang = l.code }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "globe")
+                    Image(systemName: "globe").font(.system(size: 11))
                     Text(MalayalamViewModel.languages.first(where: { $0.code == vm.targetLang })?.name ?? "Hindi")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10.5, weight: .semibold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 10).frame(height: 28)
+                .padding(.horizontal, 9).frame(height: 26)
                 .background(Capsule().fill(Color.white.opacity(0.12)))
             }
             .menuStyle(.button).buttonStyle(.plain).fixedSize()
@@ -336,9 +373,9 @@ struct MalayalamView: View {
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
+                .frame(width: 26, height: 26)
                 .background(Circle().fill(Color.white.opacity(0.12)))
         }
         .buttonStyle(.plain)
@@ -347,16 +384,16 @@ struct MalayalamView: View {
 
     private func badge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold)).tracking(1.2)
+            .font(.system(size: 8.5, weight: .semibold)).tracking(1.1)
             .foregroundStyle(MalayalamTheme.accent)
-            .padding(.horizontal, 7).padding(.vertical, 2)
+            .padding(.horizontal, 6).padding(.vertical, 1.5)
             .overlay(Capsule().strokeBorder(MalayalamTheme.accent.opacity(0.5), lineWidth: 1))
     }
 
     private var shimmer: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach([0.9, 0.55, 0.75], id: \.self) { f in
-                RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.10)).frame(height: 14)
+                RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.10)).frame(height: 13)
                     .frame(maxWidth: .infinity, alignment: .leading).scaleEffect(x: f, anchor: .leading)
             }
         }

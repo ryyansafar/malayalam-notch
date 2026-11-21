@@ -14,6 +14,7 @@
 	<key>LSUIElement</key><true/>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSMicrophoneUsageDescription</key><string>Hold the mic to say a command or a Malayalam message. The audio goes to the Malayalam translator running on this Mac.</string>
+	<key>NSAppleEventsUsageDescription</key><string>Shows what is playing in Music or Spotify and lets you pause, skip and go back from the notch.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>

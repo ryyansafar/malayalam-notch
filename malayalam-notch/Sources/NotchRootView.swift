@@ -9,6 +9,7 @@ import SwiftUI
 struct NotchRootView: View {
     @ObservedObject var model = NotchModel.shared
     @ObservedObject private var vm = MalayalamViewModel.shared
+    @ObservedObject private var np = NowPlayingModel.shared
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -26,11 +27,18 @@ struct NotchRootView: View {
                 .fill(Color.black)
                 .shadow(color: .black.opacity(model.isOpen ? 0.55 : 0), radius: model.isOpen ? 10 : 0, y: 6)
 
+            tabHeader
+                .opacity(model.isOpen ? 1 : 0)
+                .animation(.easeOut(duration: 0.18).delay(model.isOpen ? 0.12 : 0), value: model.isOpen)
+                .allowsHitTesting(model.isOpen)
+
             closedBar
                 .opacity(model.isOpen ? 0 : 1)
                 .animation(.easeOut(duration: 0.12), value: model.isOpen)
 
-            MalayalamView()
+            Group {
+                if model.tab == .home { MalayalamView() } else { AssistantView() }
+            }
                 .padding(.horizontal, model.topRadius + 14)
                 .padding(.top, model.closedHeight + 4)
                 .padding(.bottom, 14)
@@ -42,6 +50,10 @@ struct NotchRootView: View {
         .frame(width: w, height: model.shapeHeight, alignment: .top)
         .clipShape(NotchShape(topRadius: model.topRadius, bottomRadius: model.bottomRadius))
         .overlay(alignment: .top) {
+            // a 1 pt black line along the top hides any hairline against the screen edge
+            Rectangle().fill(Color.black).frame(height: 1).padding(.horizontal, model.topRadius)
+        }
+        .overlay(alignment: .top) {
             // soft accent edge while a file is over the drop target
             NotchShape(topRadius: model.topRadius, bottomRadius: model.bottomRadius)
                 .stroke(MalayalamTheme.accent.opacity(model.dropHover ? 0.7 : 0), lineWidth: 1.2)
@@ -50,21 +62,79 @@ struct NotchRootView: View {
         }
     }
 
-    /// Wings left and right of the physical notch: a waveform glyph and today's note count.
-    private var closedBar: some View {
-        HStack(spacing: 0) {
-            Image(systemName: "waveform")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(vm.phase == .idle ? Color.white.opacity(0.55) : MalayalamTheme.accent)
-                .symbolEffect(.variableColor.iterative, isActive: vm.phase != .idle)
-                .frame(maxWidth: .infinity)
+    /// Tabs on the left of the notch gap, status on the right.
+    private var tabHeader: some View {
+        HStack(spacing: 6) {
+            tabButton(.home, "waveform", "Voice")
+            tabButton(.assistant, "sparkles", "Assistant")
+            Spacer()
             Spacer().frame(width: model.notchWidth)
-            Text(vm.phase == .idle ? "\(model.notesToday)" : "…")
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(MalayalamTheme.accent)
-                .frame(maxWidth: .infinity)
+            Spacer()
+            Text("\(model.notesToday) today").font(.system(size: 10.5, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, model.topRadius + 16)
+        .frame(height: model.closedHeight)
+    }
+
+    private func tabButton(_ tab: NotchModel.Tab, _ symbol: String, _ label: String) -> some View {
+        let on = model.tab == tab
+        return Button { withAnimation(.smooth(duration: 0.25)) { model.tab = tab } } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                if on { Text(label).font(.system(size: 11, weight: .semibold)) }
+            }
+            .foregroundStyle(on ? Color.white : Color.white.opacity(0.5))
+            .padding(.horizontal, 10).frame(height: 24)
+            .background(Capsule().fill(on ? Color.white.opacity(0.14) : Color.clear))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Closed state. Idle: nothing but the notch itself. Live activity (music playing, a note being
+    /// processed): the pill widens by `wingExtra`, with a 20x20 artwork on the left wing and an
+    /// equaliser on the right, exactly as wide as the reference apps do it.
+    private var closedBar: some View {
+        let wing = model.wingExtra / 2
+        return HStack(spacing: 0) {
+            leftWing.frame(width: wing)
+            Spacer().frame(width: model.closedWidth)
+            rightWing.frame(width: wing)
         }
         .frame(height: model.closedHeight)
-        .padding(.horizontal, model.topRadius)
+        .opacity(model.extended ? 1 : 0)
+        .animation(.easeOut(duration: 0.18), value: model.extended)
+    }
+
+    @ViewBuilder private var leftWing: some View {
+        if let art = np.artwork, np.isPlaying {
+            Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
+                .frame(width: 20, height: 20).clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        } else {
+            Image(systemName: "waveform")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MalayalamTheme.accent)
+                .symbolEffect(.variableColor.iterative, isActive: vm.phase != .idle)
+        }
+    }
+
+    @ViewBuilder private var rightWing: some View {
+        EqualizerBars(active: true)
+    }
+}
+
+/// Four bars that dance while something is active.
+struct EqualizerBars: View {
+    var active: Bool
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: 2.5) {
+                ForEach(0..<4, id: \.self) { i in
+                    let h = active ? 5 + 10 * abs(sin(t * (3.1 + Double(i) * 0.9) + Double(i))) : 4
+                    Capsule().fill(MalayalamTheme.accent).frame(width: 2.6, height: h)
+                }
+            }
+            .frame(height: 16)
+        }
     }
 }

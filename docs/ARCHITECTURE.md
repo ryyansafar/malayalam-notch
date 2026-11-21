@@ -17,10 +17,10 @@ One product: a Malayalam-first assistant in the MacBook notch. A voice note (or 
 | `server/ingest.js` | `npm run ingest -- <file>` CLI: sniff + limits → `POST /api/shout`. |
 | `server/index.js` | HTTP(S) server: routes, validation, static files, the shout flow. Everything external is injected into `createServer`. |
 | `server/qr.js`, `server/env.js` | QR SVG + landing/message pages; `.env` parser + startup banner (never prints values). |
-| `public/notch.*` | The island page: `notch-core.js` holds pure phase/card/shelf logic (Node-testable), `notch.js` the DOM/SSE/native wiring, `notch.css` the shape + spring morphs. |
+| `malayalam-notch/Sources/NotchModel.swift` | Geometry (idle = notch width, live activity +2(h-12)+20, open 760x226), the notch shape with concave ears, spring-animated open/close state |
 | `public/dashboard.*` | The desk: voice-note inbox, latest note, archive table. |
 | `public/phone.*` | Hold-to-talk mic page + PWA share target (`/share`). |
-| `notch-app/NotchApp.swift` | Borderless non-activating NSPanel + transparent WKWebView; always-on NSDraggingDestination over the notch; global `.leftMouseDragged` monitor + drag-pasteboard check for early expand; URLSession post for native drops. |
+| `malayalam-notch/Sources/App.swift` | Borderless non-activating NSPanel, created once at full size and never resized; a 30 Hz cursor poll opens it on hover or an approaching audio drag and closes it on leave |
 
 Zero runtime dependencies except `qrcode-generator`. Tests use `node:test`.
 
@@ -50,6 +50,6 @@ notch drop / watched folder / share sheet / ingest / mics / typed text
 
 Page → native channel `webkit.messageHandlers.notch`: `{type:'size',w,h}` (window jumps, never animates), `{type:'hover',on}` (key-without-activating), `{type:'quit'}`. Native → page: a `notch-native` CustomEvent with `{type:'drag',on}`, `{type:'nativeDrop',filename}`, `{type:'nativeError',message}`, `{type:'hoverNear',on}`.
 
-Phases (`public/notch-core.js`): `idle`, `received`, `translating`, `result`, `recording`, `error` — each with a plain-words line; the card shows only API-returned text and names failed modes; the shelf keeps the last five notes (`pushShelf`, capped, no audio); `shouldCollapse` collapses after `COLLAPSE_AFTER_MS` unless recording/busy/focused/dragging.
+States live in `MalayalamViewModel` (idle, recording, translating) and `AssistantModel` (reminders, desktop plan); the island reacts to both.
 
 Design is specified in `docs/DESIGN.md`; window/animation technique in `docs/NOTCH-REFERENCE.md`; approach-region + drop-target geometry in `docs/DRAG-FINDINGS.md`; Saaras modes in `docs/SARVAM-FINDINGS.md`.

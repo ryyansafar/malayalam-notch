@@ -31,7 +31,7 @@ Without a key and without recorded fixtures the server runs, but every shout ans
 
 ```
 npm start        # server must be running
-npm run notch    # builds notch-app/NotchApp.swift and launches the island
+npm run notch    # builds malayalam-notch/ and launches Malayalam Notch.app
 scripts/notch.sh up|down|status   # both together
 ```
 
@@ -58,7 +58,7 @@ Formats are checked by magic bytes: Ogg/Opus (WhatsApp `PTT-*.opus`), WAV, MP3, 
 
 ## Troubleshooting
 
-- **Island never appears:** `pgrep -f notch-app/build/notch`; rebuild with `npm run notch`. On a notch-less Mac it floats 8 pt below the top.
+- **Island never appears:** `pgrep -f MalayalamNotch`; rebuild with `npm run notch` (or `malayalam-notch/build.sh`). On a notch-less Mac it shows as a pill at the top centre.
 - **Drag does nothing:** confirm the file extension is in the accepted list; the island opens only within ~160 pt of the top and ~120 pt of the notch. The drag rig (`tools/dragtest`) needs Accessibility permission for its synthetic events — the real drag itself does not.
 - **`no_replay_available`:** you are in replay mode without a fixture for that exact input — record one or set `SARVAM_MODE=live` with a key.
 - **`speech_too_long` / `file_too_large`:** clip exceeded 30 s or 5 MB.

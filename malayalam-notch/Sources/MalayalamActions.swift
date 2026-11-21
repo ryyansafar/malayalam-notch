@@ -20,11 +20,28 @@ enum MalayalamActions {
     }
 
     /// Returns a short human line describing what happened ("Opened Calendar").
-    @discardableResult
+    @MainActor @discardableResult
     static func perform(_ intent: MalayalamIntent) -> String {
         switch intent {
         case .none:
             return ""
+        case .remind(let text, let date):
+            AssistantModel.shared.addReminder(text, at: date)
+            let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
+            return "Reminder set for \(f.string(from: date)): \(text)"
+        case .timer(let seconds):
+            AssistantModel.shared.addReminder("Your \(seconds >= 60 ? "\(seconds / 60)-minute" : "\(seconds)-second") timer is up", at: Date().addingTimeInterval(TimeInterval(seconds)))
+            return "Timer set for \(seconds >= 60 ? "\(seconds / 60) min" : "\(seconds) s")"
+        case .tidyDesktop:
+            AssistantModel.shared.scanDesktop()
+            NotchModel.shared.tab = .assistant
+            return "Here's the plan — press Tidy to apply it"
+        case .translateClipboard:
+            AssistantModel.shared.translateClipboard()
+            return "Translating the clipboard…"
+        case .media(let command):
+            NowPlayingModel.shared.sendCommand(command)
+            return "Done"
         case .openApp(let name):
             if let url = findApp(named: name) {
                 NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
