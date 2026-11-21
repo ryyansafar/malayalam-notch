@@ -28,6 +28,7 @@ final class NotchModel: ObservableObject {
     @Published var tab: Tab = .home
     @Published private(set) var isOpen = false
     @Published var isDragging = false        // an audio file drag is in flight near the notch
+    @Published var peek = false              // the cursor is close to the notch (not on it): a small hint
     @Published var extended = false          // live activity: the closed pill grows sideways
     @Published var dropHover = false         // the file is over our drop target
     @Published var recording = false
@@ -38,8 +39,8 @@ final class NotchModel: ObservableObject {
     var bottomRadius: CGFloat { isOpen ? 24 : 14 }
     /// Extra width while a live activity shows: the same rule the best notch apps use, 2*(notch height - 12) + 20.
     var wingExtra: CGFloat { 2 * max(0, closedHeight - 12) + 20 }
-    var shapeWidth: CGFloat { isOpen ? openSize.width : closedWidth + (extended ? wingExtra : 0) }
-    var shapeHeight: CGFloat { (isOpen ? openSize.height : closedHeight) }
+    var shapeWidth: CGFloat { isOpen ? openSize.width : closedWidth + (extended ? wingExtra : 0) + (peek ? 12 : 0) }
+    var shapeHeight: CGFloat { isOpen ? openSize.height : closedHeight + (peek ? 5 : 0) }
 
     /// Window size: the open island plus ears and a little room for its shadow.
     var windowSize: CGSize { CGSize(width: openSize.width + earInset * 2, height: openSize.height + 24) }

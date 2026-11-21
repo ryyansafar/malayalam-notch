@@ -24,5 +24,17 @@ case "drag":
     }
     usleep(UInt32(hold * 1_000_000))
     post(.leftMouseUp, x2, y2)
+case "type":
+    for ch in a[2] {
+        let up = Array(String(ch).utf16)
+        let d = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+        d?.keyboardSetUnicodeString(stringLength: up.count, unicodeString: up); d?.post(tap: .cghidEventTap)
+        let u = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+        u?.keyboardSetUnicodeString(stringLength: up.count, unicodeString: up); u?.post(tap: .cghidEventTap)
+        usleep(18_000)
+    }
+case "enter":
+    let d = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true); d?.post(tap: .cghidEventTap)
+    let u = CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false); u?.post(tap: .cghidEventTap)
 default: print("bad command")
 }

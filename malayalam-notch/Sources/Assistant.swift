@@ -30,6 +30,7 @@ final class AssistantModel: ObservableObject {
     @Published var feedback = ""               // result line under the command bar
     @Published var plan: [OrganizePlanItem] = []
     @Published var canUndo = false
+    @Published var now = Date()                // ticks every second while a reminder is near, for the live countdown
 
     private var timer: Timer?
     private var player: AVAudioPlayer?
@@ -45,7 +46,7 @@ final class AssistantModel: ObservableObject {
     func start() {
         guard timer == nil else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
     }
@@ -63,8 +64,19 @@ final class AssistantModel: ObservableObject {
         if let d = try? JSONEncoder().encode(reminders) { UserDefaults.standard.set(d, forKey: key) }
     }
 
+    /// The soonest reminder due within 10 minutes: shown live in the closed notch.
+    var soon: Reminder? { upcoming.first(where: { $0.fire.timeIntervalSince(now) <= 600 && $0.fire > now }) }
+
+    /// mm:ss until the soonest near reminder, or nil.
+    var countdown: String? {
+        guard let r = soon else { return nil }
+        let s = max(0, Int(r.fire.timeIntervalSince(now).rounded(.up)))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     private func tick() {
         let now = Date()
+        if self.now.timeIntervalSince(now) != 0 { self.now = now }
         for i in reminders.indices where !reminders[i].done && reminders[i].fire <= now {
             reminders[i].done = true
             fire(reminders[i])
@@ -102,37 +114,77 @@ final class AssistantModel: ObservableObject {
     }
 
     // MARK: Commands
-    /// Run a command typed in the bar. Malayalam script is translated first, then understood.
+    /// Run a command typed in the bar. Malayalam goes straight to the agent (it understands it
+    /// natively); English tries the local rules first and falls back to the agent.
     func submit(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         commandText = ""
         if text.unicodeScalars.contains(where: { (0x0D00...0x0D7F).contains($0.value) }) {
             feedback = "Understanding…"
-            Task { await translateThenRun(text) }
+            Task { await askAgent(text) }
         } else {
             run(text)
         }
     }
 
-    private func translateThenRun(_ text: String) async {
-        var req = URLRequest(url: server.appendingPathComponent("api/shout"))
-        req.httpMethod = "POST"; req.timeoutInterval = 30
+    /// English text (or a spoken command's transcript). Local rules first; anything they miss goes to the agent.
+    func run(_ english: String, heard: String? = nil) {
+        let intent = MalayalamIntentParser.parse(english)
+        if intent != .none {
+            let line = MalayalamActions.perform(intent)
+            feedback = line.isEmpty ? "Done" : line
+            return
+        }
+        feedback = "Thinking…"
+        let original = (heard?.isEmpty == false) ? heard! : english
+        Task { await askAgent(original) }
+    }
+
+    // MARK: Agent (Sarvam chat model via the local server)
+    func askAgent(_ text: String) async {
+        var req = URLRequest(url: server.appendingPathComponent("api/agent"))
+        req.httpMethod = "POST"; req.timeoutInterval = 35
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "source": "text", "targetLang": "en-IN"])
-        if let (data, _) = try? await URLSession.shared.data(for: req),
-           let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let en = j["translatedText"] as? String, !en.isEmpty {
-            run(en, heard: text)
-        } else {
-            feedback = "Couldn't reach the translator — is the server running?"
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "speak": true, "ttsProvider": MalayalamViewModel.shared.ttsProvider] as [String: Any])
+        guard let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            feedback = "I couldn't reach the assistant — is the server running?"
+            return
+        }
+        let reply = (j["reply"] as? String) ?? ""
+        var lines: [String] = []
+        for a in (j["actions"] as? [[String: Any]]) ?? [] {
+            guard let tool = a["tool"] as? String, let intent = Self.intent(tool: tool, args: (a["args"] as? [String: Any]) ?? [:]) else { continue }
+            let line = MalayalamActions.perform(intent)
+            if !line.isEmpty { lines.append(line) }
+        }
+        feedback = [reply, lines.joined(separator: " · ")].filter { !$0.isEmpty }.joined(separator: "\n")
+        if feedback.isEmpty { feedback = "I didn't get that — try rephrasing." }
+        if let sp = j["speech"] as? [String: Any], let b64 = sp["ttsAudioBase64"] as? String, let audio = Data(base64Encoded: b64), !MalayalamViewModel.shared.muted {
+            player = try? AVAudioPlayer(data: audio); player?.play()
         }
     }
 
-    func run(_ english: String, heard: String? = nil) {
-        let intent = MalayalamIntentParser.parse(english)
-        let line = MalayalamActions.perform(intent)
-        feedback = line.isEmpty ? "I didn't catch an action in: \(english)" : line
+    /// Map one validated tool call from the agent to a local intent.
+    static func intent(tool: String, args: [String: Any]) -> MalayalamIntent? {
+        func num(_ k: String) -> Int? { (args[k] as? Int) ?? (args[k] as? Double).map(Int.init) }
+        switch tool {
+        case "open_app": return (args["name"] as? String).map { .openApp(name: $0) }
+        case "whatsapp": return .whatsApp(contact: args["contact"] as? String, text: args["text"] as? String)
+        case "remind":
+            guard let t = args["text"] as? String, let m = num("minutes") else { return nil }
+            return .remind(text: t, at: Date().addingTimeInterval(TimeInterval(m * 60)))
+        case "timer": return num("seconds").map { .timer(seconds: $0) }
+        case "tidy_desktop": return .tidyDesktop
+        case "translate_clipboard": return .translateClipboard
+        case "media":
+            switch args["command"] as? String { case "next": return .media(command: "next track"); case "previous": return .media(command: "previous track"); default: return .media(command: "playpause") }
+        case "set_brightness": return num("percent").map { .brightness(target: $0, delta: 0) }
+        case "set_volume": return num("percent").map { .volume(target: $0, delta: 0) }
+        case "appearance": return (args["mode"] as? String).map { .appearance(mode: $0) }
+        default: return nil
+        }
     }
 
     // MARK: Clipboard translate

@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translit",
+  "key": "43d9966f39f0eefd23e9b1da2a7204f3ae3e1c0b243de466bdfd688dfbf9ca10",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "694c9cccebb1a48aeb17ab08a1919635d3ca079388d4b8db228e7e03a95549f2",
+    "audioBytes": 10643,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translit"
+  },
+  "result": {
+    "text": "Calendar nokkiyittu naalathe schedule onnu paranju tharumo?",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T20:13:32.185Z"
+}

@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "2a67d40d648e22a477f2f0cc57db8aa4364ba9d1622789b6a73b0f7883c972dd",
+  "input": {
+    "kind": "text",
+    "text": "Can you open my calendar and put a reminder in it?",
+    "sourceLang": "en-IN",
+    "targetLang": "hi-IN"
+  },
+  "result": {
+    "text": "क्या आप मेरे कैलेंडर में एक अनुस्मारक लगा सकते हैं?",
+    "language": "en-IN"
+  },
+  "recordedAt": "2026-11-21T20:11:36.762Z"
+}

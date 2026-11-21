@@ -13,6 +13,7 @@ import { createQrRenderer, validateQrUrl, landingPage, messagePage, sharePage, Q
 import { loadEnvFile, resolveConfig, readTls, lanAddresses, bannerLines, ConfigError } from './env.js';
 import { sniffAudio, measureDuration, cutOgg, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '../shared/audio-sniff.js';
 import { resolveWatchDirs, createWatcher } from './watcher.js';
+import { createAgent, MAX_TEXT as AGENT_MAX_TEXT } from './agent.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_LANG = 'ml-IN';
@@ -41,7 +42,7 @@ const DEFAULTS = Object.freeze({
 });
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
-  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'],
+  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'], '/api/agent': ['POST'],
   '/api/providers': ['GET'], '/api/archive': ['GET'], '/api/archive.csv': ['GET'], '/api/archive.json': ['GET'],
   '/share': ['POST'], '/share/cut': ['POST'],
 });
@@ -194,7 +195,7 @@ function shoutOptions(body, smallest) {
  * @returns {{ server: import('node:http').Server, hub: object, archive: object, listen: Function, close: Function }}
  */
 export function createServer(deps = {}) {
-  const { sarvam, smallest = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
+  const { sarvam, smallest = null, agent = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
   const cfg = Object.freeze({ lanAddresses: lanAddresses(), ...DEFAULTS, ...deps.config });
   const hub = H.createHub({ initial: H.initialState({ mode: cfg.mode, startedT: now() }), timers, keepAliveMs: cfg.keepAliveMs, maxClients: cfg.maxSseClients });
   const archive = archiveDep || createArchive({ log, now });
@@ -451,6 +452,26 @@ export function createServer(deps = {}) {
       if (failed || !tts) throw new HttpError(502, 'speak_failed', 'The speech call failed.');
       sendJson(res, 200, { ok: true, spokenText, spokenLang, ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', ttsProvider, tts: { provider: ttsProvider, latencyMs: ms(tts), source: lane(tts) } });
     },
+    'POST /api/agent': async (req, res) => {
+      // Free-form request (Malayalam or English) -> a short reply plus validated tool calls.
+      // The Mac app performs the actions; the reply can be spoken back in the user's language.
+      const body = await readJson(req, cfg.maxBodyBytes);
+      if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) throw bad('invalid_text', 'text must be a non-empty string');
+      if (text.length > AGENT_MAX_TEXT) throw bad('invalid_text', `text must be at most ${AGENT_MAX_TEXT} characters`);
+      if (!agent) throw new HttpError(503, 'agent_unavailable', 'The assistant is not configured.');
+      const out = await agent.run({ text });
+      if (!out.ok) throw new HttpError(502, out.error || 'agent_failed', 'The assistant could not answer. Try again.');
+      let speech = null;
+      if (body.speak === true && out.reply) {
+        const { ttsProvider } = shoutOptions(body, smallest);
+        const lang = /[\u0D00-\u0D7F]/.test(out.reply) ? 'ml-IN' : 'en-IN';
+        const tts = await speakWith(ttsProvider, out.reply, lang);
+        if (tts) speech = { ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', lang, provider: ttsProvider };
+      }
+      sendJson(res, 200, { ok: true, reply: out.reply, actions: out.actions, latencyMs: out.latencyMs ?? null, offline: out.offline === true, speech });
+    },
     'GET /api/archive.csv': async (req, res) => {
       send(res, 200, 'text/csv; charset=utf-8', archiveCsv(archive.list()), { 'Content-Disposition': 'attachment; filename="malayalam-notes.csv"' });
     },
@@ -596,8 +617,9 @@ async function main() {
   const archive = createArchive({ file: path.join(ROOT, 'data', 'archive.jsonl'), log: warn });
   const watch = resolveWatchDirs({ env: process.env });
   const watchLang = H.LANGS.includes(process.env.WATCH_LANG) ? process.env.WATCH_LANG : 'en-IN';
+  const agent = createAgent({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, log: warn });
   const app = createServer({
-    sarvam, smallest, archive, log: warn,
+    sarvam, smallest, agent, archive, log: warn,
     config: { mode: conf.mode, https: conf.https, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);

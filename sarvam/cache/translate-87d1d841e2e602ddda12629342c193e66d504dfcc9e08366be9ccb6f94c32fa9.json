@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "87d1d841e2e602ddda12629342c193e66d504dfcc9e08366be9ccb6f94c32fa9",
+  "input": {
+    "kind": "text",
+    "text": "Could you please check the calendar and tell me tomorrow's schedule?",
+    "sourceLang": "en-IN",
+    "targetLang": "hi-IN"
+  },
+  "result": {
+    "text": "क्या आप कृपया कैलेंडर देख सकते हैं और कल का कार्यक्रम मुझे बता सकते हैं?",
+    "language": "en-IN"
+  },
+  "recordedAt": "2026-11-21T20:13:32.908Z"
+}

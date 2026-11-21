@@ -98,27 +98,40 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     // MARK: Cursor poll
+    private var hoverSince: Date?
+
     private func tick() {
         guard let s = screen else { return }
         let loc = NSEvent.mouseLocation
         let topY = s.frame.maxY
         let midX = s.frame.midX
 
-        let live = NowPlayingModel.shared.isPlaying || MalayalamViewModel.shared.phase != .idle
+        let live = NowPlayingModel.shared.isPlaying || MalayalamViewModel.shared.phase != .idle || AssistantModel.shared.soon != nil
         if live != model.extended { withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { model.extended = live } }
 
         let mouseDown = NSEvent.pressedMouseButtons & 1 == 1
         model.isDragging = mouseDown && dragCarriesAudio()
 
-        // Hover target: the closed pill; drag target: a wider, taller approach zone (never needs the edge).
-        let pillHalf = (model.closedWidth + (model.extended ? model.wingExtra : 0)) / 2 + 6
-        let overPill = abs(loc.x - midX) < pillHalf && loc.y > topY - (model.closedHeight + 4)
-        let nearForDrag = abs(loc.x - midX) < model.openSize.width / 2 && loc.y > topY - 170
-        let openRect = abs(loc.x - midX) < model.openSize.width / 2 + 24 && loc.y > topY - (model.openSize.height + 28)
+        // The action area is the notch pill itself (a few points of slack, nothing beside it).
+        // Closer than that (a short way around the pill) the notch only "peeks".
+        let pillW = model.closedWidth + (model.extended ? model.wingExtra : 0)
+        let dx = abs(loc.x - midX)
+        let dy = topY - loc.y                                   // distance below the top edge
+        let onPill = dx < pillW / 2 + 3 && dy < model.closedHeight + 3
+        let nearPill = dx < pillW / 2 + 60 && dy < model.closedHeight + 50
+        let nearForDrag = dx < model.openSize.width / 2 && dy < 170
+        let openRect = dx < model.openSize.width / 2 + 20 && dy < model.openSize.height + 24
 
         if !model.isOpen {
-            if overPill && !mouseDown { model.setOpen(true) }
-            else if model.isDragging && nearForDrag { model.setOpen(true) }
+            let wantPeek = nearPill && !onPill && !mouseDown
+            if wantPeek != model.peek { withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { model.peek = wantPeek } }
+            if onPill && !mouseDown {
+                if hoverSince == nil { hoverSince = Date() }
+                if let t = hoverSince, Date().timeIntervalSince(t) > 0.12 { hoverSince = nil; model.peek = false; model.setOpen(true) }
+            } else {
+                hoverSince = nil
+                if model.isDragging && nearForDrag { model.peek = false; model.setOpen(true) }
+            }
         } else if openRect || model.shouldStayOpen {
             leaveSince = nil
         } else {

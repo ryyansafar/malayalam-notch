@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "transcribe",
+  "key": "0e4a5dd42655dc621759dcfb6685d2028b830c5f96cc1290414ed99f0e6b7535",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "219be3eb4c761f812dc83ea1f13c343e56f47ae87466b305a24467237e054626",
+    "audioBytes": 5820,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "transcribe"
+  },
+  "result": {
+    "text": "മഴ പെയ്യുന്നതുകൊണ്ട് ഇന്ന് യാത്ര ഒഴിവാക്കാം.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T20:12:24.561Z"
+}

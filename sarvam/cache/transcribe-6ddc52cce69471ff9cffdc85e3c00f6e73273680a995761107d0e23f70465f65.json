@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "transcribe",
+  "key": "6ddc52cce69471ff9cffdc85e3c00f6e73273680a995761107d0e23f70465f65",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "694c9cccebb1a48aeb17ab08a1919635d3ca079388d4b8db228e7e03a95549f2",
+    "audioBytes": 10643,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "transcribe"
+  },
+  "result": {
+    "text": "കലണ്ടർ നോക്കിയിട്ട് നാളത്തെ സ്കെഡ്യൂൾ ഒന്ന് പറഞ്ഞു തരുമോ?",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T20:13:32.184Z"
+}

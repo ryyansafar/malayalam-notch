@@ -10,6 +10,7 @@ struct NotchRootView: View {
     @ObservedObject var model = NotchModel.shared
     @ObservedObject private var vm = MalayalamViewModel.shared
     @ObservedObject private var np = NowPlayingModel.shared
+    @ObservedObject private var asst = AssistantModel.shared
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -106,7 +107,9 @@ struct NotchRootView: View {
     }
 
     @ViewBuilder private var leftWing: some View {
-        if let art = np.artwork, np.isPlaying {
+        if asst.soon != nil {
+            Image(systemName: "timer").font(.system(size: 12, weight: .semibold)).foregroundStyle(MalayalamTheme.accent)
+        } else if let art = np.artwork, np.isPlaying {
             Image(nsImage: art).resizable().aspectRatio(contentMode: .fill)
                 .frame(width: 20, height: 20).clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         } else {
@@ -118,7 +121,11 @@ struct NotchRootView: View {
     }
 
     @ViewBuilder private var rightWing: some View {
-        EqualizerBars(active: true)
+        if let t = asst.countdown {
+            Text(t).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundStyle(MalayalamTheme.accent)
+        } else {
+            EqualizerBars(active: true)
+        }
     }
 }
 

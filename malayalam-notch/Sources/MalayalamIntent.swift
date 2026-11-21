@@ -16,6 +16,9 @@ enum MalayalamIntent: Equatable {
     case tidyDesktop
     case translateClipboard
     case media(command: String)          // "playpause" | "next track" | "previous track"
+    case brightness(target: Int?, delta: Int)   // target 0-100, or a relative change
+    case volume(target: Int?, delta: Int)
+    case appearance(mode: String)        // "dark" | "light" | "toggle"
     case none
 }
 
@@ -37,6 +40,7 @@ enum MalayalamIntentParser {
         if lower.range(of: #"\b(tidy|clean|organi[sz]e|sort)\b.*\bdesktop\b|\bdesktop\b.*\b(tidy|clean|organi[sz]e)"#, options: .regularExpression) != nil { return .tidyDesktop }
         if lower.contains("clipboard") && (lower.contains("translate") || lower.contains("read")) { return .translateClipboard }
         if let m = parseMedia(lower) { return m }
+        if let b = parseLevel(lower) { return b }
         if let wa = parseWhatsApp(lower, original: text) { return wa }
 
         for verb in openVerbs where lower.hasPrefix(verb + " ") {
@@ -121,6 +125,37 @@ enum MalayalamIntentParser {
         if tomorrow { d = cal.date(byAdding: .day, value: 1, to: d)! }
         else if d <= now { d = cal.date(byAdding: .day, value: 1, to: d)! }
         return d
+    }
+
+    // MARK: Brightness, volume, appearance
+
+    private static func level(in lower: String) -> Int? {
+        if lower.range(of: #"\b(lowest|minimum|min|zero|all the way down|darkest)\b"#, options: .regularExpression) != nil { return 0 }
+        if lower.range(of: #"\b(highest|maximum|max|brightest|full|all the way up)\b"#, options: .regularExpression) != nil { return 100 }
+        if let re = try? NSRegularExpression(pattern: #"(\d{1,3})\s*(%|percent)?"#),
+           let m = re.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+           let r = Range(m.range(at: 1), in: lower), let n = Int(lower[r]), n <= 100 { return n }
+        return nil
+    }
+
+    static func parseLevel(_ lower: String) -> MalayalamIntent? {
+        if lower.range(of: #"\b(dark|light) mode\b"#, options: .regularExpression) != nil {
+            return .appearance(mode: lower.contains("dark") ? (lower.contains("turn off") || lower.contains("disable") ? "light" : "dark") : "light")
+        }
+        if lower.contains("toggle") && (lower.contains("appearance") || lower.contains("theme")) { return .appearance(mode: "toggle") }
+        if lower.range(of: #"\b(brightness|dim|brighten|brighter|dimmer|darken)\b"#, options: .regularExpression) != nil {
+            if let t = level(in: lower) { return .brightness(target: t, delta: 0) }
+            let up = lower.contains("brighten") || lower.contains("brighter") || lower.contains("increase") || lower.contains(" up")
+            return .brightness(target: nil, delta: up ? 25 : -25)
+        }
+        if lower.range(of: #"\b(volume|louder|quieter|softer|mute|unmute|turn it up|turn it down)\b"#, options: .regularExpression) != nil {
+            if lower.contains("unmute") { return .volume(target: 50, delta: 0) }
+            if lower.range(of: #"\bmute\b"#, options: .regularExpression) != nil { return .volume(target: 0, delta: 0) }
+            if let t = level(in: lower) { return .volume(target: t, delta: 0) }
+            let up = lower.contains("louder") || lower.contains("up") || lower.contains("increase") || lower.contains("raise")
+            return .volume(target: nil, delta: up ? 15 : -15)
+        }
+        return nil
     }
 
     // MARK: Media and WhatsApp

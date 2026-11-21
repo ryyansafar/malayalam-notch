@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "b61adf37d2ced955593a434d48effa0e7edec8e9d9a8f6985577b728e51fffa3",
+  "input": {
+    "kind": "text",
+    "text": "Let's avoid the trip today because it is raining.",
+    "sourceLang": "en-IN",
+    "targetLang": "hi-IN"
+  },
+  "result": {
+    "text": "चलिए आज यात्रा नहीं करते क्योंकि वर्षा हो रही है।",
+    "language": "en-IN"
+  },
+  "recordedAt": "2026-11-21T20:12:25.757Z"
+}

@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "e8b46465805bc4c9e09d6bcca9dbb9689406b42f5b8660acf8d94418be0a53d8",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "694c9cccebb1a48aeb17ab08a1919635d3ca079388d4b8db228e7e03a95549f2",
+    "audioBytes": 10643,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translate"
+  },
+  "result": {
+    "text": "Could you please check the calendar and tell me tomorrow's schedule?",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T20:13:32.185Z"
+}

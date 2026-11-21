@@ -42,6 +42,17 @@ enum MalayalamActions {
         case .media(let command):
             NowPlayingModel.shared.sendCommand(command)
             return "Done"
+        case .brightness(let target, let delta):
+            guard let cur = SystemControls.brightness() else { return "I can't change this display's brightness" }
+            let new = target.map { Float($0) / 100 } ?? min(max(cur + Float(delta) / 100, 0), 1)
+            return SystemControls.setBrightness(new) ? "Brightness \(Int((new * 100).rounded()))%" : "I can't change this display's brightness"
+        case .volume(let target, let delta):
+            let cur = SystemControls.volume() ?? 50
+            let new = min(max(target ?? (cur + delta), 0), 100)
+            SystemControls.setVolume(new)
+            return new == 0 ? "Muted" : "Volume \(new)%"
+        case .appearance(let mode):
+            return SystemControls.setAppearance(mode) ? "Switched to \(mode == "toggle" ? "the other" : mode) mode" : "Couldn't change the appearance (allow Automation for System Events)"
         case .openApp(let name):
             if let url = findApp(named: name) {
                 NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
@@ -94,5 +105,38 @@ enum MalayalamActions {
             }
         }
         return best
+    }
+}
+
+/// Brightness, volume and appearance. Brightness uses the system DisplayServices framework (the same call the
+/// keyboard keys use); it works on the built-in display and may not on every external one.
+enum SystemControls {
+    private typealias GetB = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Int32
+    private typealias SetB = @convention(c) (UInt32, Float) -> Int32
+    private static let lib = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_NOW)
+
+    static func brightness() -> Float? {
+        guard let lib, let sym = dlsym(lib, "DisplayServicesGetBrightness") else { return nil }
+        var v: Float = 0
+        return unsafeBitCast(sym, to: GetB.self)(CGMainDisplayID(), &v) == 0 ? v : nil
+    }
+    static func setBrightness(_ v: Float) -> Bool {
+        guard let lib, let sym = dlsym(lib, "DisplayServicesSetBrightness") else { return false }
+        return unsafeBitCast(sym, to: SetB.self)(CGMainDisplayID(), v) == 0
+    }
+    static func volume() -> Int? {
+        var err: NSDictionary?
+        let r = NSAppleScript(source: "output volume of (get volume settings)")?.executeAndReturnError(&err)
+        return err == nil ? Int(r?.int32Value ?? 50) : nil
+    }
+    static func setVolume(_ n: Int) {
+        var err: NSDictionary?
+        _ = NSAppleScript(source: "set volume output volume \(n)")?.executeAndReturnError(&err)
+    }
+    static func setAppearance(_ mode: String) -> Bool {
+        let value = mode == "dark" ? "true" : mode == "light" ? "false" : "not dark mode"
+        var err: NSDictionary?
+        _ = NSAppleScript(source: "tell application \"System Events\" to tell appearance preferences to set dark mode to \(value)")?.executeAndReturnError(&err)
+        return err == nil
     }
 }

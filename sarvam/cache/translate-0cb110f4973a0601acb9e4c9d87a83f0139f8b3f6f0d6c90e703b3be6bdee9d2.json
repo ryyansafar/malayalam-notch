@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "0cb110f4973a0601acb9e4c9d87a83f0139f8b3f6f0d6c90e703b3be6bdee9d2",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "e838bda53de83fd46dec3a7359da6cd2315ffb604f1f24864f54582461e04f13",
+    "audioBytes": 68000,
+    "mime": "audio/mp4",
+    "sourceLang": "ml-IN",
+    "mode": "translate"
+  },
+  "result": {
+    "text": "Can you open my calendar and put a reminder in it?",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T20:11:35.967Z"
+}
