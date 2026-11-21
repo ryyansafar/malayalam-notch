@@ -12,6 +12,7 @@ Built solo at Hackathoni, 21-22 Nov 2026. The repository was created at the even
 | `public/dashboard.*` | The desk view (drop zone, latest note, archive) |
 | `README.md`, `DEMO.md`, docs passes | Documentation |
 | `fix(review)` commits | Reviewed other modules and fixed two defects it found |
+| `malayalam-notch/Sources/Clipboard.swift`, `Shelf.swift` | The opt-in clipboard history and the file shelf views (Nov 22); wired into the notch by the other assistant |
 
 Devin also ran the secret scan, created the repository and pushed it. Devin also wrote a first web-based notch island (`public/notch.*` with a small Swift shell). It was **replaced** by the native app below and is no longer in the repository.
 
@@ -22,6 +23,8 @@ Written with a separate AI coding assistant under the builder's direction:
 - `malayalam-notch/` — the native SwiftUI notch app, written from scratch: panel and cursor poll, notch geometry and shape, the Voice and Assistant tabs, Now Playing, reminders, desktop tidy-up, the local command rules.
 - `malayalam-notch/` also holds the safety layer (risk tiers, confirm card, audit log, pause switch), the Me tab, the Activity and Now tabs, and the Sarvam Voice Agents call route (`server/voice-call.js`). The plan for these was reviewed by a second AI model (read-only; it wrote no code).
 - `sarvam/*`, `smallest/*`, `server/*` (original modules), `shared/*` (original modules), their tests, `docs/*` (architecture, design spec, findings, reference), `CONTRACT.md`, `scripts/`, `tools/dragtest/` (test rig), and the briefs in `docs/devin-tasks/`.
+
+- The pitch deck (published as a private artifact), its fact-check against this repo, UI and growth research (Apple HIG, growth.design case studies, notch-app issue trackers) and two security/code reviews were done by separate AI agents; their findings were checked and applied by hand. Demo taglines in `docs/pitch-audio/` are synthetic speech from Sarvam and smallest.ai.
 
 ## What AI did not do
 

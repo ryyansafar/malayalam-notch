@@ -35,6 +35,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         NowPlayingModel.shared.start()
         AssistantModel.shared.start()
         ToolsModel.shared.start()
+        ClipboardModel.shared.start()
         buildStatusItem()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
         model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
