@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "6406af63531447277965a59adfcd83a6d9ef658e8b5ecafca1d36d55343ae332",
+  "input": {
+    "kind": "text",
+    "text": "We will come in the evening to watch the boat race.",
+    "sourceLang": "en-IN",
+    "targetLang": "hi-IN"
+  },
+  "result": {
+    "text": "हम शाम को नौका दौड़ देखने आएंगे।",
+    "language": "en-IN"
+  },
+  "recordedAt": "2026-11-21T19:42:35.044Z"
+}
