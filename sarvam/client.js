@@ -174,8 +174,13 @@ function parseTranslateResponse(data, kind) {
   if (typeof raw !== 'string') {
     throw new SarvamApiError('Sarvam returned a response without the expected text field', { status: 502 });
   }
-  const prob = data.language_probability;
-  return typeof prob === 'number' ? { text: raw.trim(), languageProbability: prob } : { text: raw.trim() };
+  const out = { text: raw.trim() };
+  if (typeof data.language_probability === 'number') out.languageProbability = data.language_probability;
+  // STT answers carry language_code; text translation carries source_language_code.
+  // Kept for the archive's "detected language" column; absent in older cache entries.
+  const lang = typeof data.language_code === 'string' ? data.language_code : data.source_language_code;
+  if (typeof lang === 'string' && lang !== '') out.language = lang;
+  return out;
 }
 
 /** Documented shape is { audios: [base64] }. A single `audio` string is also accepted (not documented). */

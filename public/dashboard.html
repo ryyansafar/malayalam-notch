@@ -101,6 +101,37 @@
     <p id="shout-status" class="status" role="status" aria-live="polite"></p>
   </section>
 
+  <section class="panel inbox" aria-labelledby="h-inbox">
+    <h2 id="h-inbox">Voice-note inbox</h2>
+    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
+      <p>Drop a WhatsApp voice note here, or click to choose a file</p>
+      <p id="drop-hint" class="muted">.opus .ogg .m4a .mp3 .wav — max 5 MB, clips up to 30 s (the Sarvam REST speech-to-text limit)</p>
+    </div>
+    <input id="file-input" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav" hidden>
+    <p id="inbox-status" class="status" role="status" aria-live="polite"></p>
+    <p class="muted note">Transcription is Sarvam cloud speech-to-text — the audio leaves the laptop; it is not local. Audio bytes are never stored; only the translated text is kept in the archive.</p>
+  </section>
+
+  <section class="panel archive" aria-labelledby="h-archive">
+    <h2 id="h-archive">Call archive</h2>
+    <div class="field">
+      <label for="archive-q">search the archive</label>
+      <input id="archive-q" type="text" autocomplete="off" placeholder="translation, meaning or language">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <caption class="sr-only">every heard call, newest first</caption>
+        <thead>
+          <tr><th scope="col">time</th><th scope="col">source</th><th scope="col">file</th><th scope="col">lang</th>
+              <th scope="col">heard as</th><th scope="col">meaning</th><th scope="col">verdict</th><th scope="col"></th></tr>
+        </thead>
+        <tbody id="archive-rows">
+          <tr><td colspan="8" class="muted">no archived calls yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel evidence" aria-labelledby="h-evi">
     <h2 id="h-evi">Evidence</h2>
     <p id="tally" class="tally">no trials yet</p>

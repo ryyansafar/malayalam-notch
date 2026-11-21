@@ -276,6 +276,9 @@ function decodeAudio(raw, mimeRaw, cfg) {
   return { audio, mime };
 }
 
+// Where a shout came from: a dropped voice note, the microphone, or typed text.
+export const SHOUT_SOURCES = Object.freeze(['voice_note', 'text', 'mic']);
+
 export function validateShout(body, cfg) {
   if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
   if (!LANGS.includes(body.targetLang)) throw bad('invalid_target_lang', `targetLang must be one of: ${LANGS.join(', ')}`);
@@ -283,9 +286,21 @@ export function validateShout(body, cfg) {
   const hasAudio = present(body.audioBase64);
   if (!hasText && !hasAudio) throw bad('missing_input', 'Provide either text or audioBase64');
   if (hasText && hasAudio) throw bad('ambiguous_input', 'Provide text or audioBase64, not both');
-  if (hasAudio) return { targetLang: body.targetLang, ...decodeAudio(body.audioBase64, body.mime, cfg) };
+  const source = present(body.source) ? body.source : null;
+  if (source !== null && !SHOUT_SOURCES.includes(source)) {
+    throw bad('invalid_source', `source must be one of: ${SHOUT_SOURCES.join(', ')}`);
+  }
+  let filename = null;
+  if (present(body.filename)) {
+    if (typeof body.filename !== 'string' || body.filename.length > 200 || /[\u0000-\u001f/\\]/.test(body.filename)) {
+      throw bad('invalid_filename', 'filename must be a file name (no path separators) of at most 200 characters');
+    }
+    filename = body.filename;
+  }
+  const origin = { source: source || (hasAudio ? 'mic' : 'text'), filename };
+  if (hasAudio) return { targetLang: body.targetLang, ...origin, ...decodeAudio(body.audioBase64, body.mime, cfg) };
   if (typeof body.text !== 'string' || body.text.trim() === '') throw bad('invalid_text', 'text must be a non-empty string');
   const text = body.text.trim();
   if (text.length > cfg.maxTextChars) throw bad('invalid_text', `text must be at most ${cfg.maxTextChars} characters`);
-  return { targetLang: body.targetLang, text };
+  return { targetLang: body.targetLang, ...origin, text };
 }

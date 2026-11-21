@@ -1,7 +1,9 @@
 // rowing-call dashboard: 3D hero, shout box, call/obedience cards, provider
-// switch, evidence table. /api/* + /events SSE. ES module, no build step.
+// switch, evidence table, voice-note inbox and call archive.
+// /api/* + /events SSE. ES module, no build step.
 
 import { createScene } from './scene.js';
+import { mimeFromName } from '/shared/audio-mime.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {};
@@ -16,11 +18,15 @@ for (const [k, id] of Object.entries({
   obeyVerdict: 'obey-verdict', obeyDetail: 'obey-detail', tally: 'tally',
   ttsSummary: 'tts-summary', trials: 'trials', providerNote: 'provider-note',
   coachRow: 'coach-row', coach: 'coach',
+  dropzone: 'dropzone', fileInput: 'file-input', inboxStatus: 'inbox-status',
+  archiveQ: 'archive-q', archiveRows: 'archive-rows',
 })) els[k] = $(id);
 
 const SPARK_WINDOW_MS = 60_000, STROKE_STALE_MS = 4_000, PHONE_QUIET_MS = 12_000;
 const REC_MAX_MS = 8_000, MAX_STROKES = 600, MAX_AUDIO = 24;
+const NOTE_MAX_BYTES = 5 * 1024 * 1024, NOTE_MAX_SECONDS = 30; // Sarvam REST speech-to-text limit
 const PROVIDER_LABEL = { sarvam: 'Sarvam', smallest: 'smallest.ai' };
+const SOURCE_LABEL = { voice_note: 'voice note', mic: 'mic', text: 'text' };
 
 const ui = {
   strokes: [], clockOffset: 0, phone: null,
@@ -175,6 +181,7 @@ function setVerdict(cls, verdict, detail) {
 function onResult(r) {
   if (!r || typeof r !== 'object') return;
   addTrial(r);
+  loadArchive(); // the verdict was just written to the archive
   scene.setResult(r.outcome);
   const n = r.strokesUntilObeyed;
   if (r.outcome === 'obeyed') setVerdict('ok', `Obeyed in ${n === null ? '?' : n} stroke${n === 1 ? '' : 's'}`, detailOf(r));
@@ -200,6 +207,7 @@ function playAudio(a) {
 // evidence table
 const OUTCOME_LABEL = { obeyed: 'obeyed', not_obeyed: 'not obeyed', not_sure: 'not sure' };
 const OUTCOME_CLS = { obeyed: 'ok', not_obeyed: 'bad', not_sure: 'warn' };
+const VERDICT_LABEL = OUTCOME_LABEL;
 
 function cell(tr, text, cls) {
   const td = document.createElement('td');
@@ -321,6 +329,7 @@ async function postShout(payload) {
     setStatus('Shout failed: could not reach the server.', 'bad');
   } finally {
     setBusy(false);
+    loadArchive(); // the server archives every heard shout, even a failed judgement
   }
 }
 
@@ -405,6 +414,98 @@ function toBase64(buf) {
   return btoa(out);
 }
 
+// ---------- voice-note inbox ----------
+
+function setInboxStatus(text, cls = '') {
+  els.inboxStatus.textContent = text;
+  els.inboxStatus.className = `status${cls ? ` ${cls}` : ''}`;
+}
+
+// Duration of a dropped clip, or null when the browser cannot read it
+// (some builds cannot demux Ogg/Opus — then the REST limit answer comes from Sarvam).
+function probeDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const done = (sec) => { URL.revokeObjectURL(url); resolve(sec); };
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audio.addEventListener('loadedmetadata', () => done(Number.isFinite(audio.duration) ? audio.duration : null));
+    audio.addEventListener('error', () => done(null));
+    audio.src = url;
+    setTimeout(() => done(null), 4000);
+  });
+}
+
+async function sendNote(file) {
+  if (file.size > NOTE_MAX_BYTES) {
+    return setInboxStatus(`"${file.name}" is ${(file.size / 1e6).toFixed(1)} MB — the limit is 5 MB.`, 'bad');
+  }
+  setInboxStatus(`Checking "${file.name}"…`);
+  const seconds = await probeDuration(file);
+  if (seconds !== null && seconds > NOTE_MAX_SECONDS) {
+    return setInboxStatus(`"${file.name}" is about ${Math.round(seconds)} s — Sarvam speech-to-text accepts clips up to 30 s.`, 'bad');
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const mime = mimeFromName(file.name, file.type);
+    setInboxStatus(`Sending "${file.name}" — Sarvam cloud speech-to-text…`);
+    await postShout({ audioBase64: toBase64(buf), mime, filename: file.name, source: 'voice_note' });
+    setInboxStatus(`"${file.name}" sent as a voice note.`);
+  } catch {
+    setInboxStatus(`Could not read "${file.name}".`, 'bad');
+  }
+}
+
+// ---------- call archive ----------
+
+let archiveTimer = 0;
+
+async function loadArchive() {
+  const q = els.archiveQ.value.trim();
+  const res = await fetch(`/api/archive${q ? `?q=${encodeURIComponent(q)}` : ''}`).catch(() => null);
+  const data = res && res.ok ? await res.json().catch(() => null) : null;
+  if (data && data.ok && Array.isArray(data.entries)) renderArchive(data.entries);
+}
+
+function renderArchive(entries) {
+  els.archiveRows.textContent = '';
+  if (!entries.length) {
+    const tr = document.createElement('tr');
+    cell(tr, els.archiveQ.value.trim() ? 'nothing in the archive matches' : 'no archived calls yet', 'muted').colSpan = 8;
+    els.archiveRows.appendChild(tr);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const e of entries) {
+    const tr = document.createElement('tr');
+    cell(tr, Number.isFinite(e.time) ? new Date(e.time).toLocaleTimeString('en-GB', { hour12: false }) : '—', 'time');
+    cell(tr, SOURCE_LABEL[e.source] || esc(e.source));
+    cell(tr, esc(e.filename));
+    const langTd = cell(tr, '');
+    const badge = document.createElement('span');
+    badge.className = 'badge dim';
+    badge.textContent = esc(e.language);
+    langTd.appendChild(badge);
+    cell(tr, esc(e.text));
+    cell(tr, e.meaning ? human(e.meaning) : '—');
+    const verdict = cell(tr, e.verdict ? VERDICT_LABEL[e.verdict] || human(e.verdict) : 'pending',
+      `outcome ${OUTCOME_CLS[e.verdict] || ''}`);
+    if (e.reason) verdict.title = e.reason;
+    const action = cell(tr, '');
+    if (e.text) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mini';
+      btn.textContent = 'Replay as call';
+      btn.title = 'Send the translated text through the shout path again (no audio)';
+      btn.addEventListener('click', () => postShout({ text: e.text }));
+      action.appendChild(btn);
+    }
+    frag.appendChild(tr);
+  }
+  els.archiveRows.appendChild(frag);
+}
+
 // SSE
 let es = null;
 
@@ -441,8 +542,37 @@ els.rec.addEventListener('click', () => (rec ? stopRecording() : startRecording(
 els.replay.addEventListener('click', () => playAudio(ui.currentAudio));
 els.replayCoach.addEventListener('click', () => playAudio(ui.coachAudio));
 
+// voice-note inbox: click or Enter/Space opens the picker; files may also be dropped.
+els.dropzone.addEventListener('click', () => els.fileInput.click());
+els.dropzone.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.fileInput.click(); }
+});
+els.fileInput.addEventListener('change', () => {
+  const file = els.fileInput.files && els.fileInput.files[0];
+  els.fileInput.value = ''; // picking the same file twice must still send it
+  if (file) sendNote(file);
+});
+for (const ev of ['dragenter', 'dragover']) {
+  els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); });
+}
+for (const ev of ['dragleave', 'drop']) {
+  els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); });
+}
+els.dropzone.addEventListener('drop', (e) => {
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) sendNote(file);
+});
+// A file dropped anywhere else must not navigate the dashboard away.
+for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
+
+els.archiveQ.addEventListener('input', () => {
+  clearTimeout(archiveTimer);
+  archiveTimer = setTimeout(loadArchive, 250);
+});
+
 fetch('/api/state').then((r) => (r.ok ? r.json() : null)).then(applyState).catch(() => {});
 fetch('/api/providers').then((r) => (r.ok ? r.json() : null)).then(renderProviders).catch(() => renderProviders(null));
+loadArchive();
 connect();
 setInterval(tick, 500);
 tick();

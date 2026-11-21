@@ -6,6 +6,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as H from './hub.js';
+import { createArchive } from './archive.js';
 import { createQrRenderer, validateQrUrl, landingPage, messagePage, QrUnavailableError } from './qr.js';
 import { loadEnvFile, resolveConfig, readTls, lanAddresses, bannerLines, ConfigError } from './env.js';
 
@@ -39,7 +40,7 @@ const DEFAULTS = Object.freeze({
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
   '/api/state': ['GET'], '/api/phone': ['POST'], '/api/stroke': ['POST'], '/api/shout': ['POST'],
-  '/api/providers': ['GET'],
+  '/api/providers': ['GET'], '/api/archive': ['GET'],
 });
 
 class HttpError extends Error {
@@ -161,18 +162,21 @@ function combineEars(a, b) {
 
 /**
  * @param {{ sarvam: object, smallest?: object, matchMeaning: Function, evaluate: Function, now?: () => number,
- *   classifier?: { classify: Function }, matchReason?: (text: string) => string|null, timers?: object, qr?: (url: string) => Promise<string>, log?: (line: string) => void, config?: object }} deps
- * @returns {{ server: import('node:http').Server, hub: object, listen: Function, close: Function }}
+ *   classifier?: { classify: Function }, matchReason?: (text: string) => string|null, archive?: object,
+ *   timers?: object, qr?: (url: string) => Promise<string>, log?: (line: string) => void, config?: object }} deps
+ * @returns {{ server: import('node:http').Server, hub: object, archive: object, listen: Function, close: Function }}
  */
 export function createServer(deps = {}) {
-  const { sarvam, smallest = null, classifier = null, matchReason = null, matchMeaning, evaluate, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
+  const { sarvam, smallest = null, classifier = null, matchReason = null, archive: archiveDep = null, matchMeaning, evaluate, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
   const cfg = Object.freeze({ lanAddresses: lanAddresses(), ...DEFAULTS, ...deps.config });
   const hub = H.createHub({ initial: H.initialState({ mode: cfg.mode, startedT: now() }), timers, keepAliveMs: cfg.keepAliveMs, maxClients: cfg.maxSseClients });
+  const archive = archiveDep || createArchive({ log, now });
   const publicDir = path.join(cfg.rootDir, 'public');
   const snapshot = () => H.publicState(hub.getState(), now());
   let seq = 0;
   let shoutInFlight = false;
   let pending = null;
+  const pendingArchive = new Map(); // callId -> archive entry id, until the verdict lands
 
   const sweep = timers.setInterval(() => {
     const { phone } = hub.getState();
@@ -209,6 +213,15 @@ export function createServer(deps = {}) {
   }
 
   function record(trial) {
+    const archiveId = pendingArchive.get(trial.callId);
+    pendingArchive.delete(trial.callId);
+    if (archiveId) {
+      try {
+        archive.update(archiveId, { verdict: trial.outcome, reason: trial.reason });
+      } catch (err) {
+        log(`[archive] verdict update failed: ${errorName(err)}`);
+      }
+    }
     hub.update((s) => H.withTrial(s, trial));
     hub.broadcast('result', trial);
     hub.broadcast('state', snapshot());
@@ -397,6 +410,18 @@ export function createServer(deps = {}) {
       ...(modelFallbackOn ? { matchedBy: spokenText ? match.matchedBy : null, model } : {}),
       ...(ears ? { ears, secondEar: second } : {}), // present only when the second ear ran
     };
+    // Archive the heard call before anything is spoken: the entry is created now,
+    // and its verdict is filled in when the trial is judged (or immediately for not_sure).
+    try {
+      const entry = archive.add({
+        time: now(), source: input.source, filename: input.filename,
+        language: typeof tr.language === 'string' && tr.language ? tr.language : SOURCE_LANG,
+        text: translatedText, meaning: match.meaning, confidence: match.confidence,
+      });
+      if (entry && entry.id) pendingArchive.set(base.callId, entry.id);
+    } catch (err) {
+      log(`[archive] add failed: ${errorName(err)}`);
+    }
     if (!spokenText) return notSure(base, heard);
     const tts = await speakWith(input.ttsProvider, spokenText, input.targetLang);
     const hasAudio = Boolean(tts);
@@ -453,6 +478,10 @@ export function createServer(deps = {}) {
     },
     'GET /api/state': async (req, res) => sendJson(res, 200, snapshot()),
     'GET /api/providers': async (req, res) => sendJson(res, 200, { ok: true, ...providersInfo() }),
+    'GET /api/archive': async (req, res, query) => {
+      const q = (query.get('q') || '').slice(0, 200);
+      sendJson(res, 200, { ok: true, entries: archive.list({ q }) });
+    },
     'POST /api/phone': async (req, res) => {
       const info = H.validatePhone(await readJson(req, cfg.maxBodyBytes), req);
       const { phone } = hub.update((s) => H.withPhone(s, { ...info, connected: true, lastSeenT: now() }));
@@ -528,6 +557,7 @@ export function createServer(deps = {}) {
   return {
     server,
     hub,
+    archive,
     listen: (port = 0, host = '0.0.0.0') => new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => resolve({ port: server.address().port }));
@@ -570,14 +600,16 @@ async function main() {
   const classifier = modelFallback
     ? fallback.createMeaningClassifier({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, mode: conf.requestedMode, cacheDir, log: clientLog })
     : null;
+  const archive = createArchive({ file: path.join(ROOT, 'data', 'archive.jsonl'), log: warn });
   const app = createServer({
-    sarvam, smallest, classifier, matchReason: calls.noMatchReason, matchMeaning: calls.matchMeaning, evaluate: obedience.evaluate, log: warn,
+    sarvam, smallest, classifier, archive, matchReason: calls.noMatchReason, matchMeaning: calls.matchMeaning, evaluate: obedience.evaluate, log: warn,
     config: { mode: conf.mode, https: conf.https, secondEar, modelFallback, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);
   for (const line of bannerLines({ ...conf, port, addresses: lanAddresses() })) say(line);
   say(`smallest.ai: ${smallest.mode === 'live' ? 'LIVE' : 'REPLAY'} (SMALLEST_API_KEY ${smallestKey ? 'set' : 'not set'}), second ear ${secondEar ? 'ON' : 'off'}`);
   say(`model fallback: ${classifier ? `ON (${classifier.model}, ${classifier.mode === 'live' ? 'LIVE' : 'REPLAY'}, only when the rules find no keyword)` : 'off'}`);
+  say(`call archive: data/archive.jsonl (${archive.size} entr${archive.size === 1 ? 'y' : 'ies'}, newest first, capped at 500)`);
   const shutdown = () => {
     say('Shutting down');
     app.close().then(() => process.exit(0));

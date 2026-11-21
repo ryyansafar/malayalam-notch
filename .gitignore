@@ -4,5 +4,6 @@ certs/
 *.log
 .DS_Store
 .playwright-mcp/
+data/
 *.png
 !public/**/*.png
