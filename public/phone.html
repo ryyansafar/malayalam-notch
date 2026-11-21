@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<title>rowing-call — phone</title>
+<link rel="stylesheet" href="phone.css">
+</head>
+<body>
+<header class="top">
+  <span id="sim-badge" class="badge badge-sim" hidden>SIMULATION</span>
+  <span id="conn" class="conn" role="status">
+    <span id="conn-dot" class="conn-dot" aria-hidden="true"></span>
+    <span id="conn-text">connecting</span>
+  </span>
+</header>
+
+<main>
+  <section id="start-screen" class="start" aria-labelledby="start-h">
+    <h1 id="start-h">rowing&#8209;call</h1>
+    <p class="muted">Hold this phone like an oar and row in the air. Your strokes are counted here.</p>
+    <p class="muted small">Tapping start asks for motion access and lets sound play.</p>
+    <button id="start" class="btn btn-start" type="button">TAP TO START</button>
+    <p id="start-note" class="note" role="status"></p>
+  </section>
+
+  <section id="row-screen" class="row" hidden>
+    <p id="notice" class="notice" role="status" hidden></p>
+
+    <div class="stats" aria-label="live stroke numbers">
+      <div class="stat">
+        <span id="spm" class="stat-num">0</span>
+        <span class="stat-label">strokes / min</span>
+      </div>
+      <div class="stat">
+        <span id="count" class="stat-num">0</span>
+        <span class="stat-label">strokes</span>
+      </div>
+    </div>
+
+    <div id="call" class="call" aria-live="assertive">
+      <span id="call-badge" class="badge" hidden></span>
+      <p id="call-text" class="call-text">Waiting for the call…</p>
+      <p id="call-sub" class="call-sub muted"></p>
+      <button id="hear" class="btn btn-hear" type="button" hidden>TAP TO HEAR</button>
+    </div>
+
+    <div id="result" class="result" aria-live="polite">
+      <p id="result-text" class="result-text"></p>
+      <p id="result-sub" class="result-sub muted"></p>
+    </div>
+
+    <button id="taprow" class="btn btn-taprow" type="button" hidden>TAP TO ROW (simulation)</button>
+  </section>
+</main>
+
+<script type="module" src="phone.js"></script>
+</body>
+</html>
