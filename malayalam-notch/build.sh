@@ -11,5 +11,7 @@ swiftc -O -parse-as-library -target arm64-apple-macos14.0 \
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"; [ -f "$HERE/../demo-samples/PTT-test-2.opus" ] && cp "$HERE/../demo-samples/PTT-test-2.opus" "$APP/Contents/Resources/sample.opus"
 [ -f "$HERE/AppIcon.icns" ] && { mkdir -p "$APP/Contents/Resources"; cp "$HERE/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"; }
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# Ad hoc signature with a requirement that names only the app (not each build's hash), so macOS privacy
+# permissions (Full Disk Access, microphone, screen) can survive a rebuild.
+codesign --force --sign - --requirements '=designated => identifier "site.ryyansafar.malayalamnotch"' "$APP" >/dev/null 2>&1 || codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 echo "$APP"

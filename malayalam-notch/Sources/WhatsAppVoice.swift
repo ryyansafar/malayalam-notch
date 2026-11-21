@@ -18,6 +18,40 @@ enum WhatsAppMedia {
 
     enum Result { case found(URL), none, noAccess }
 
+    static var messageDir: URL { base.deletingLastPathComponent() }
+
+    /// WhatsApp's own chat database lists each chat by the person's name, so this finds the right chat even when
+    /// the media folders are named by an internal id instead of a phone number. Read-only, on a copy.
+    static func newestVoiceNoteByName(_ name: String, messageDir: URL = WhatsAppMedia.messageDir) -> Result {
+        let fm = FileManager.default
+        let db = messageDir.deletingLastPathComponent().appendingPathComponent("ChatStorage.sqlite")
+        guard fm.fileExists(atPath: db.path) else { return .none }
+        let tmp = fm.temporaryDirectory.appendingPathComponent("wa-db-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        for ext in ["", "-wal", "-shm"] {
+            let src = URL(fileURLWithPath: db.path + ext)
+            if fm.fileExists(atPath: src.path) {
+                do { try fm.copyItem(at: src, to: tmp.appendingPathComponent("ChatStorage.sqlite" + ext)) } catch { return .noAccess }
+            }
+        }
+        let safe = name.replacingOccurrences(of: "'", with: "''")
+        let sql = "SELECT mi.ZMEDIALOCALPATH FROM ZWAMESSAGE m JOIN ZWACHATSESSION c ON m.ZCHATSESSION = c.Z_PK JOIN ZWAMEDIAITEM mi ON m.ZMEDIAITEM = mi.Z_PK WHERE c.ZPARTNERNAME LIKE '%\(safe)%' AND m.ZISFROMME = 0 AND lower(mi.ZMEDIALOCALPATH) LIKE '%.opus' ORDER BY m.ZMESSAGEDATE DESC LIMIT 5;"
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        p.arguments = ["-readonly", tmp.appendingPathComponent("ChatStorage.sqlite").path, sql]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        do { try p.run() } catch { return .none }
+        p.waitUntilExit()
+        let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        for line in text.split(separator: "\n") {
+            let rel = String(line).trimmingCharacters(in: .whitespaces)
+            for candidate in [messageDir.appendingPathComponent(rel), messageDir.appendingPathComponent("Media").appendingPathComponent(rel)] where fm.fileExists(atPath: candidate.path) {
+                return .found(candidate)
+            }
+        }
+        return .none
+    }
+
     /// The newest .opus under the chat folder whose name contains the contact's number (last 10 digits).
     static func newestVoiceNote(number: String, base: URL = WhatsAppMedia.base) -> Result {
         let fm = FileManager.default
@@ -59,12 +93,14 @@ final class WhatsAppVoice: ObservableObject {
             NotchModel.shared.tab = .me; NotchModel.shared.setOpen(true)
             return status
         }
-        switch WhatsAppMedia.newestVoiceNote(number: number) {
+        var result = WhatsAppMedia.newestVoiceNote(number: number)
+        if case .none = result { result = WhatsAppMedia.newestVoiceNoteByName(name) }     // chats named by an internal id
+        switch result {
         case .noAccess:
             needsAccess = true
-            status = "Allow Full Disk Access for Malayalam Notch so I can read WhatsApp voice notes."
+            status = "macOS is blocking me from WhatsApp's files. In Full Disk Access, switch Malayalam Notch off and on again (or remove and re-add it), then quit and reopen the notch."
         case .none:
-            status = "I couldn't find a voice note from \(name). Open the chat in WhatsApp once so it downloads."
+            status = "I can read WhatsApp, but found no downloaded voice note from \(name). Open that chat in WhatsApp once so the voice note downloads, then try again."
         case .found(let url):
             // Work on a copy: WhatsApp's own file is never touched.
             let copy = FileManager.default.temporaryDirectory.appendingPathComponent("wa-\(UUID().uuidString.prefix(6)).opus")
