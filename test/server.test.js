@@ -12,7 +12,7 @@ const FAKE_KEY = 'not-a-real-key-fixture-123';
 let rootDir;
 
 before(() => {
-  rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rowing-call-test-'));
+  rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'malayalam-notch-test-'));
   fs.mkdirSync(path.join(rootDir, 'public', 'sub'), { recursive: true });
   fs.mkdirSync(path.join(rootDir, 'shared'));
   fs.mkdirSync(path.join(rootDir, 'server'));
@@ -23,7 +23,7 @@ before(() => {
   fs.writeFileSync(path.join(rootDir, 'public', 'data.bin'), 'binary');
   fs.writeFileSync(path.join(rootDir, 'public', '.hidden.js'), 'HIDDEN');
   fs.writeFileSync(path.join(rootDir, 'public', 'sub', 'deep.js'), 'export const d = 1;\n');
-  fs.writeFileSync(path.join(rootDir, 'shared', 'stroke.js'), 'export const s = 1;\n');
+  fs.writeFileSync(path.join(rootDir, 'shared', 'x.js'), 'export const s = 1;\n');
   fs.writeFileSync(path.join(rootDir, 'server', 'secret.js'), 'TOP-SECRET');
   fs.writeFileSync(path.join(rootDir, '.env'), 'SARVAM_API_KEY=TOP-SECRET\n');
   fs.symlinkSync(path.join(rootDir, 'server', 'secret.js'), path.join(rootDir, 'public', 'link.js'));
@@ -54,34 +54,37 @@ function fakeTimers() {
   };
 }
 
-async function start(overrides = {}) {
-  const clock = { t: 1_000_000 };
-  const timers = fakeTimers();
-  const calls = { translate: [], speak: [], match: [], evaluate: [] };
-  const sarvam = {
+// A fake Sarvam that answers all three Saaras modes plus typed translation and TTS.
+function fakeSarvam(calls, overrides = {}) {
+  const STT_TEXT = { transcribe: ' വേഗത്തില്‍ പോവുക ', translit: ' vegam povuka ', translate: ' Move faster! ' };
+  return {
+    stt: async (args) => {
+      calls.stt.push(args);
+      return { text: STT_TEXT[args.mode] ?? ' x ', language: 'ml-IN', source: 'live', latencyMs: 120 };
+    },
     translate: async (args) => {
       calls.translate.push(args);
-      return { text: ' Row faster! ', source: 'live', latencyMs: 120 };
+      if (args.sourceLang === 'en-IN') return { text: ' तेज़ चलाओ ', language: 'en-IN', source: 'live', latencyMs: 30 };
+      return { text: ' Move faster! ', language: 'ml-IN', source: 'live', latencyMs: 120 };
     },
     speak: async (args) => {
       calls.speak.push(args);
       return { audioBase64: 'QUJD', mime: 'audio/wav', source: 'live', latencyMs: 80 };
     },
-    ...overrides.sarvam,
+    ...overrides,
   };
-  const matchMeaning = overrides.matchMeaning || ((text) => {
-    calls.match.push(text);
-    return /faster/i.test(text) ? { meaning: 'speed_up', confidence: 'high', matchedKeyword: 'faster' } : { meaning: null, confidence: 'none' };
-  });
-  const evaluate = overrides.evaluate || ((args) => {
-    calls.evaluate.push(args);
-    return { obeyed: true, strokesUntilObeyed: 2, deltaSpm: 6, reason: 'rate rose' };
-  });
+}
+
+async function start(overrides = {}) {
+  const clock = { t: 1_000_000 };
+  const timers = fakeTimers();
+  const calls = { stt: [], translate: [], speak: [] };
+  const sarvam = fakeSarvam(calls, overrides.sarvam);
   const logs = [];
   const app = createServer({
-    sarvam, matchMeaning, evaluate, now: () => clock.t, timers: timers.api, log: (l) => logs.push(l),
+    sarvam, smallest: overrides.smallest ?? null, now: () => clock.t, timers: timers.api, log: (l) => logs.push(l),
     qr: overrides.qr || (async (url) => `<svg data-url="${encodeURIComponent(url)}"/>`),
-    config: { rootDir, mode: 'replay', lanAddresses: [], windowMs: 8000, graceMs: 750, ...overrides.config },
+    config: { rootDir, mode: 'replay', lanAddresses: [], ...overrides.config },
   });
   const { port } = await app.listen(0, '127.0.0.1');
   return { app, port, clock, timers, calls, logs, stop: () => app.close() };
@@ -160,11 +163,9 @@ function openEvents(port) {
   });
 }
 
-const strokes = (...rows) => ({ events: rows.map(([t, rateSpm, count]) => ({ type: 'stroke', t, rateSpm, count })) });
-
 // ---------- pages, static files, traversal ----------
 
-test('GET / shows the QR, the dashboard link, the mode badge and the UNVERIFIED notice', async () => {
+test('GET / shows the QR, the desk link and the mode badge', async () => {
   const s = await start();
   try {
     const r = await request(s.port, { headers: { Host: 'example-laptop.local:8443' } });
@@ -172,9 +173,9 @@ test('GET / shows the QR, the dashboard link, the mode badge and the UNVERIFIED 
     assert.match(r.headers['content-type'], /^text\/html/);
     assert.match(r.text, /REPLAY/);
     assert.match(r.text, /href="\/dashboard"/);
+    assert.match(r.text, /Malayalam in the notch/);
+    assert.match(r.text, /language, not a dialect/);
     assert.ok(r.text.includes(`/qr.svg?url=${encodeURIComponent('http://example-laptop.local:8443/phone')}`));
-    assert.match(r.text, /UNVERIFIED/);
-    assert.match(r.text, /not race equipment/);
     const evil = await request(s.port, { headers: { Host: 'x"><script>alert(1)</script>' } });
     assert.equal(evil.text.includes('<script>'), false);
   } finally {
@@ -226,7 +227,7 @@ test('static files get the right MIME types from /public and /shared', async () 
   const s = await start();
   try {
     const cases = [
-      ['/public/app.js', /^text\/javascript/], ['/shared/stroke.js', /^text\/javascript/], ['/public/sub/deep.js', /^text\/javascript/],
+      ['/public/app.js', /^text\/javascript/], ['/shared/x.js', /^text\/javascript/], ['/public/sub/deep.js', /^text\/javascript/],
       ['/public/app.css', /^text\/css/], ['/public/dashboard.html', /^text\/html/], ['/public/pic.svg', /^image\/svg\+xml/],
       ['/app.js', /^text\/javascript/],
     ];
@@ -345,7 +346,7 @@ test('real qrcode-generator renders a scannable-size matrix when installed', asy
   assert.ok(svg.length > 500);
 });
 
-// ---------- state, phone, strokes, SSE ----------
+// ---------- state, phone, SSE ----------
 
 test('GET /api/state returns the public state shape', async () => {
   const s = await start();
@@ -354,19 +355,17 @@ test('GET /api/state returns the public state shape', async () => {
     assert.equal(r.status, 200);
     assert.match(r.headers['content-type'], /^application\/json/);
     assert.equal(r.json.mode, 'replay');
-    assert.deepEqual(r.json.phone, { connected: false, lastSeenT: null, userAgent: null, simulated: false });
-    assert.deepEqual(r.json.trials, []);
-    assert.deepEqual(r.json.tally, { obeyed: 0, notObeyed: 0, notSure: 0, total: 0 });
+    assert.deepEqual(r.json.phone, { connected: false, lastSeenT: null, userAgent: null });
+    assert.equal(r.json.lastNote, null);
+    assert.equal(r.json.notesToday, 0);
     assert.deepEqual(r.json.langs, ['en-IN', 'hi-IN', 'bn-IN', 'od-IN', 'ta-IN']);
-    assert.equal(r.json.callsVerified, false);
     assert.equal(r.json.serverT, s.clock.t);
-    assert.equal('strokes' in r.json, false);
   } finally {
     await s.stop();
   }
 });
 
-test('SSE delivers the initial state, phone and stroke events, and keep-alive comments', async () => {
+test('SSE delivers the initial state, phone events and keep-alive comments', async () => {
   const s = await start({ config: { keepAliveMs: 4321 } });
   const sse = await openEvents(s.port);
   try {
@@ -374,27 +373,14 @@ test('SSE delivers the initial state, phone and stroke events, and keep-alive co
     const initial = await sse.next('state');
     assert.equal(initial.mode, 'replay');
 
-    const hello = await post(s.port, '/api/phone', { userAgent: 'TestPhone/1.0', motion: 'simulated' });
+    const hello = await post(s.port, '/api/phone', { userAgent: 'TestPhone/1.0' });
     assert.equal(hello.status, 200);
     const phone = await sse.next('phone');
-    assert.deepEqual(phone, { connected: true, lastSeenT: s.clock.t, userAgent: 'TestPhone/1.0', simulated: true });
-
-    s.clock.t += 500;
-    const batch = await post(s.port, '/api/stroke', strokes([5000, 20, 1], [5300, 24.5, 2]));
-    assert.deepEqual(batch.json, { ok: true, accepted: 2 });
-    const second = await sse.next('stroke', 2);
-    const first = await sse.next('stroke', 1);
-    // newest event is anchored to the server clock; spacing is preserved
-    assert.deepEqual(second, { type: 'stroke', t: s.clock.t, phoneT: 5300, rateSpm: 24.5, count: 2, simulated: false });
-    assert.equal(first.t, s.clock.t - 300);
+    assert.deepEqual(phone, { connected: true, lastSeenT: s.clock.t, userAgent: 'TestPhone/1.0' });
 
     s.timers.fireIntervals(4321);
     await sse.waitFor(() => sse.comments.length > 0);
     assert.equal(sse.comments[0], ': keep-alive');
-
-    const state = (await request(s.port, { path: '/api/state' })).json;
-    assert.equal(state.stroke.count, 2);
-    assert.equal(state.recentStrokes.length, 2);
   } finally {
     sse.close();
     await s.stop();
@@ -441,19 +427,15 @@ test('POST bodies are validated with precise 400 errors', async () => {
     const cases = [
       ['/api/phone', '{not json', 'invalid_json'], ['/api/phone', '', 'empty_body'], ['/api/phone', '[1]', 'invalid_body'],
       ['/api/phone', { userAgent: 42 }, 'invalid_user_agent'],
-      ['/api/stroke', { nope: 1 }, 'invalid_events'], ['/api/stroke', { events: ['x'] }, 'invalid_event'],
-      ['/api/stroke', { events: [{ t: 'now', rateSpm: 20, count: 1 }] }, 'invalid_event'],
-      ['/api/stroke', { events: [{ type: 'tap', t: 1, rateSpm: 20, count: 1 }] }, 'invalid_event'],
-      ['/api/stroke', { events: [{ t: 1, rateSpm: -5, count: 1 }] }, 'invalid_event'],
-      ['/api/stroke', { events: [{ t: 1, rateSpm: 20, count: 1.5 }] }, 'invalid_event'],
-      ['/api/stroke', { events: Array.from({ length: 201 }, (_, i) => ({ t: i, rateSpm: 20, count: i })) }, 'too_many_events'],
       ['/api/shout', { text: 'go' }, 'invalid_target_lang'], ['/api/shout', { text: 'go', targetLang: 'fr-FR' }, 'invalid_target_lang'],
       ['/api/shout', { targetLang: 'hi-IN' }, 'missing_input'], ['/api/shout', { targetLang: 'hi-IN', text: '', audioBase64: '' }, 'missing_input'],
       ['/api/shout', { targetLang: 'hi-IN', text: 'go', audioBase64: 'QUJD' }, 'ambiguous_input'],
       ['/api/shout', { targetLang: 'hi-IN', text: 7 }, 'invalid_text'], ['/api/shout', { targetLang: 'hi-IN', text: 'x'.repeat(501) }, 'invalid_text'],
       ['/api/shout', { targetLang: 'hi-IN', audioBase64: 'not base64!!' }, 'invalid_audio'], ['/api/shout', { targetLang: 'hi-IN', audioBase64: 12 }, 'invalid_audio'],
       ['/api/shout', { targetLang: 'hi-IN', audioBase64: 'QUJD', mime: 'text/html' }, 'invalid_mime'],
+      ['/api/shout', { text: 'x', targetLang: 'hi-IN', ttsProvider: 'nonsense' }, 'invalid_tts_provider'],
       ['/api/shout', 'null', 'invalid_body'],
+      ['/api/speak', { targetLang: 'hi-IN' }, 'invalid_text'], ['/api/speak', { text: 'hi', targetLang: 'fr-FR' }, 'invalid_target_lang'],
     ];
     for (const [p, body, code] of cases) {
       const r = await post(s.port, p, body);
@@ -463,9 +445,7 @@ test('POST bodies are validated with precise 400 errors', async () => {
       assert.ok(r.json.error.message.length > 5);
       assert.equal(/\bat .*\.js:\d+/.test(r.text), false, 'no stack trace');
     }
-    assert.match((await post(s.port, '/api/stroke', { events: [{ t: 1, rateSpm: 20, count: -1 }] })).json.error.message, /events\[0\]\.count/);
     assert.equal(s.calls.translate.length, 0);
-    assert.equal(s.app.hub.getState().strokes.length, 0);
   } finally {
     await s.stop();
   }
@@ -495,167 +475,174 @@ test('body limit: declared and streamed oversize bodies get 413', async () => {
 
 // ---------- shout flow ----------
 
-test('full shout flow: translate, match, speak, call, observe window, evaluate, result, trial table', async () => {
+test('audio shout: three Saaras modes run in parallel and fill the card fields', async () => {
   const s = await start();
   const sse = await openEvents(s.port);
   try {
-    await post(s.port, '/api/stroke', strokes([100, 22, 7]));
-    s.clock.t += 1000;
-    const r = await post(s.port, '/api/shout', { text: '  vegam  ', targetLang: 'hi-IN' });
-    assert.equal(r.status, 200);
-    const callT = s.clock.t;
-    assert.deepEqual(s.calls.translate, [{ text: 'vegam', sourceLang: 'ml-IN' }]);
-    assert.deepEqual(s.calls.match, ['Row faster!']);
-    assert.deepEqual(s.calls.speak, [{ text: 'तेज़ चलाओ', targetLang: 'hi-IN' }]);
-    assert.equal(r.json.status, 'ok');
-    assert.equal(r.json.meaning, 'speed_up');
-    assert.equal(r.json.confidence, 'high');
-
-    const call = await sse.next('call');
-    assert.deepEqual(call, {
-      callId: 'call-1', targetLang: 'hi-IN', input: 'text', translatedText: 'Row faster!', confidence: 'high', matchedKeyword: 'faster',
-      t: callT, meaning: 'speed_up', spokenText: 'तेज़ चलाओ', status: 'ok', ttsAudioBase64: 'QUJD', mime: 'audio/wav', ttsAvailable: true,
-      source: 'live', sources: { translate: 'live', speak: 'live' }, latencyMs: 200, baselineSpm: 22, windowMs: 8000,
-      ttsProvider: 'sarvam', tts: { provider: 'sarvam', latencyMs: 80, source: 'live' },
+    const audioBase64 = Buffer.from('fake-audio-bytes').toString('base64');
+    const r = await post(s.port, '/api/shout', {
+      audioBase64, mime: 'audio/webm;codecs=opus', targetLang: 'hi-IN',
+      source: 'notch_drop', filename: 'PTT-1.opus', mode: 'translate', // mode is ignored
     });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.noteId, 'note-1');
+    assert.equal(r.json.input, 'audio');
+    assert.equal(r.json.origin, 'notch_drop');
+    assert.equal(r.json.filename, 'PTT-1.opus');
+    assert.equal(r.json.sourceText, 'വേഗത്തില്‍ പോവുക');
+    assert.equal(r.json.romanText, 'vegam povuka');
+    assert.equal(r.json.translatedText, 'Move faster!');
+    assert.equal(r.json.detectedLanguage, 'ml-IN');
+    assert.equal(r.json.status, 'ok');
+    assert.deepEqual(r.json.failedOps, []);
+    assert.equal(r.json.ttsAudioBase64, 'QUJD');
+    assert.equal(r.json.ttsAvailable, true);
 
-    // the window is driven by the injected timer: nothing is judged until it fires
-    assert.equal(s.timers.pendingTimeouts().length, 1);
-    assert.equal(s.timers.pendingTimeouts()[0].ms, 8750);
-    assert.equal(s.calls.evaluate.length, 0);
+    // same bytes, same mime, one call per mode — all three fired
+    assert.equal(s.calls.stt.length, 3);
+    assert.deepEqual(s.calls.stt.map((c) => c.mode).sort(), ['transcribe', 'translate', 'translit']);
+    for (const c of s.calls.stt) {
+      assert.deepEqual(c.audio, Buffer.from('fake-audio-bytes'));
+      assert.equal(c.mime, 'audio/webm;codecs=opus');
+      assert.equal(c.sourceLang, 'ml-IN');
+    }
 
-    s.clock.t += 2000;
-    await post(s.port, '/api/stroke', strokes([3000, 26, 8], [4000, 30, 9]));
-    s.clock.t += 7000; // callT + 9000: outside the 8000 ms window
-    await post(s.port, '/api/stroke', strokes([9000, 31, 10]));
-    s.timers.fireTimeouts();
+    // hi-IN target: translation was re-translated en-IN -> hi-IN before TTS
+    assert.deepEqual(s.calls.speak, [{ text: 'तेज़ चलाओ', targetLang: 'hi-IN' }]);
+    assert.equal(r.json.spokenText, 'तेज़ चलाओ');
+    assert.equal(r.json.spokenLang, 'hi-IN');
 
-    const result = await sse.next('result');
-    assert.equal(s.calls.evaluate.length, 1);
-    const args = s.calls.evaluate[0];
-    assert.equal(args.meaning, 'speed_up');
-    assert.equal(args.callT, callT);
-    assert.equal(args.baselineSpm, 22);
-    assert.equal(args.windowMs, 8000);
-    assert.deepEqual(args.events.map((e) => [e.t - callT, e.rateSpm, e.count]), [[1000, 26, 8], [2000, 30, 9]]);
-    assert.ok(args.events.every((e) => e.type === 'stroke'));
-
-    assert.equal(result.callId, 'call-1');
-    assert.equal(result.outcome, 'obeyed');
-    assert.equal(result.obeyed, true);
-    assert.equal(result.strokesUntilObeyed, 2);
-    assert.equal(result.deltaSpm, 6);
-    assert.equal(result.source, 'live');
-    assert.equal(result.strokesObserved, 2);
-    assert.equal(result.stage, 'obedience');
-    assert.equal('ttsAudioBase64' in result, false);
-
+    const received = await sse.next('received');
+    assert.equal(received.noteId, 'note-1');
+    assert.equal(received.filename, 'PTT-1.opus');
+    const note = await sse.next('note');
+    assert.equal(note.noteId, 'note-1');
+    assert.equal(note.translatedText, 'Move faster!');
     const state = await sse.next('state', 2);
-    assert.equal(state.trials.length, 1);
-    assert.deepEqual(state.tally, { obeyed: 1, notObeyed: 0, notSure: 0, total: 1 });
-    assert.equal(state.lastResult.callId, 'call-1');
-    assert.equal(JSON.stringify(state).includes('QUJD'), false, 'audio is never stored in state');
-    assert.equal(s.timers.pendingTimeouts().length, 0);
+    assert.equal(state.lastNote.noteId, 'note-1');
+    assert.equal(state.notesToday, 1);
+    assert.equal('ttsAudioBase64' in state.lastNote, false, 'audio is never stored in state');
   } finally {
     sse.close();
     await s.stop();
   }
 });
 
-test('audio shout passes a Buffer and mime to translate; data URLs are accepted', async () => {
+test('audio shout: one failed mode leaves the others in place', async () => {
+  const s = await start({
+    sarvam: {
+      stt: async ({ mode }) => {
+        if (mode === 'translit') throw new Error('translit down');
+        return { text: mode === 'transcribe' ? 'വാചകം' : 'A sentence', language: 'ml-IN', source: 'live', latencyMs: 10 };
+      },
+    },
+  });
+  try {
+    const r = await post(s.port, '/api/shout', {
+      audioBase64: 'QUJD', mime: 'audio/ogg', targetLang: 'en-IN',
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.sourceText, 'വാചകം');
+    assert.equal(r.json.romanText, null);
+    assert.equal(r.json.translatedText, 'A sentence');
+    assert.deepEqual(r.json.failedOps, ['translit']);
+    assert.deepEqual(r.json.sources.translit, null);
+  } finally {
+    await s.stop();
+  }
+});
+
+test('audio shout: all three modes failing is a 502, and no note is archived', async () => {
+  const s = await start({
+    sarvam: { stt: async () => { throw new Error('dead'); } },
+  });
+  try {
+    const r = await post(s.port, '/api/shout', { audioBase64: 'QUJD', mime: 'audio/ogg', targetLang: 'en-IN' });
+    assert.equal(r.status, 502);
+    const entries = s.app.archive.list();
+    assert.equal(entries.length, 0);
+    const lastNote = s.app.hub.getState().lastNote;
+    assert.equal(lastNote.status, 'error');
+    assert.equal(lastNote.error.code, 'transcribe_failed');
+  } finally {
+    await s.stop();
+  }
+});
+
+test('audio shout: a client without stt still gets the English translation', async () => {
+  const s = await start({
+    sarvam: {
+      stt: undefined,
+      translate: async (args) => ({ text: args.audio ? 'English only' : 'x', language: 'ml-IN', source: 'live', latencyMs: 5 }),
+      speak: async () => ({ audioBase64: 'QUJD', mime: 'audio/wav', source: 'live', latencyMs: 5 }),
+    },
+  });
+  try {
+    const r = await post(s.port, '/api/shout', { audioBase64: 'QUJD', mime: 'audio/ogg', targetLang: 'en-IN' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.translatedText, 'English only');
+    assert.equal(r.json.sourceText, null);
+    assert.equal(r.json.romanText, null);
+    assert.deepEqual(r.json.failedOps.sort(), ['transcribe', 'translit']);
+  } finally {
+    await s.stop();
+  }
+});
+
+test('text shout: the typed Malayalam is kept as sourceText and spoken back', async () => {
+  const s = await start();
+  try {
+    const r = await post(s.port, '/api/shout', { text: '  ഇത് ഒരു പരീക്ഷണമാണ്  ', targetLang: 'hi-IN' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.input, 'text');
+    assert.equal(r.json.sourceText, 'ഇത് ഒരു പരീക്ഷണമാണ്');
+    assert.equal(r.json.romanText, null);
+    assert.equal(r.json.translatedText, 'Move faster!');
+    assert.equal(r.json.detectedLanguage, 'ml-IN');
+    assert.equal(s.calls.stt.length, 0);
+    assert.deepEqual(s.calls.translate[0], { text: 'ഇത് ഒരു പരീക്ഷണമാണ്', sourceLang: 'ml-IN' });
+    assert.deepEqual(s.calls.speak, [{ text: 'तेज़ चलाओ', targetLang: 'hi-IN' }]);
+    assert.equal(s.app.archive.list()[0].source, 'text');
+    assert.equal(s.app.archive.list()[0].transcript, 'ഇത് ഒരു പരീക്ഷണമാണ്');
+  } finally {
+    await s.stop();
+  }
+});
+
+test('audio shout passes a Buffer and mime to stt; data URLs are accepted', async () => {
   const s = await start();
   try {
     const audioBase64 = Buffer.from('fake-audio-bytes').toString('base64');
     const r = await post(s.port, '/api/shout', { audioBase64, mime: 'audio/webm;codecs=opus', targetLang: 'ta-IN' });
     assert.equal(r.status, 200);
     assert.equal(r.json.input, 'audio');
-    const sent = s.calls.translate[0];
+    const sent = s.calls.stt[0];
     assert.ok(Buffer.isBuffer(sent.audio));
     assert.equal(sent.audio.toString(), 'fake-audio-bytes');
     assert.equal(sent.mime, 'audio/webm;codecs=opus');
-    assert.equal(sent.sourceLang, 'ml-IN');
     assert.equal('text' in sent, false);
     assert.equal(s.calls.speak[0].targetLang, 'ta-IN');
 
     const r2 = await post(s.port, '/api/shout', { audioBase64: `data:audio/mp4;base64,${audioBase64}`, targetLang: 'en-IN' });
     assert.equal(r2.status, 200);
-    assert.equal(s.calls.translate[1].mime, 'audio/mp4');
-    assert.equal(s.calls.translate[1].audio.toString(), 'fake-audio-bytes');
+    assert.equal(s.calls.stt[3].mime, 'audio/mp4');
+    assert.equal(s.calls.stt[3].audio.toString(), 'fake-audio-bytes');
   } finally {
     await s.stop();
   }
 });
 
-test('not_sure: no speech, no observation window, result broadcast and trial recorded', async () => {
-  const s = await start({ sarvam: { translate: async () => ({ text: 'the weather is nice', source: 'replay', latencyMs: 3 }) } });
-  const sse = await openEvents(s.port);
+test('replay is stated whenever any part was replayed', async () => {
+  const s = await start({
+    sarvam: { speak: async () => ({ audioBase64: 'QUJD', mime: 'audio/wav', source: 'replay', latencyMs: 1 }) },
+  });
   try {
-    const r = await post(s.port, '/api/shout', { text: 'enthokke', targetLang: 'bn-IN' });
-    assert.equal(r.status, 200);
-    assert.equal(r.json.status, 'not_sure');
-    assert.equal(r.json.meaning, null);
-    assert.equal(r.json.translatedText, 'the weather is nice');
+    const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'od-IN' });
     assert.equal(r.json.source, 'replay');
-    assert.equal(s.calls.speak.length, 0);
-    assert.equal(s.timers.pendingTimeouts().length, 0);
-    const result = await sse.next('result');
-    assert.equal(result.status, 'not_sure');
-    assert.equal(result.stage, 'meaning');
-    assert.equal(result.obeyed, null);
-    assert.equal(sse.events.some((e) => e.event === 'call'), false);
-    const state = await sse.next('state', 2);
-    assert.deepEqual(state.tally, { obeyed: 0, notObeyed: 0, notSure: 1, total: 1 });
-    assert.equal(s.calls.evaluate.length, 0);
+    assert.equal(r.json.sources.speak, 'replay');
   } finally {
-    sse.close();
     await s.stop();
-  }
-});
-
-test('a meaning with no phrase, or a malformed match, is treated as not_sure', async () => {
-  for (const matchMeaning of [() => ({ meaning: 'dance', confidence: 'high' }), () => null, () => ({ meaning: 'stop', confidence: 'none' })]) {
-    const s = await start({ matchMeaning });
-    try {
-      const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'en-IN' });
-      assert.equal(r.json.status, 'not_sure');
-      assert.equal(r.json.confidence, 'none');
-      assert.equal(s.calls.speak.length, 0);
-    } finally {
-      await s.stop();
-    }
-  }
-});
-
-test('replay is stated whenever any part was replayed; verdicts map to outcomes', async () => {
-  const verdicts = [
-    [{ obeyed: false, strokesUntilObeyed: null, deltaSpm: -1, reason: 'no change' }, 'not_obeyed'],
-    [{ obeyed: null, strokesUntilObeyed: null, deltaSpm: null, reason: 'too few strokes' }, 'not_sure'],
-    ['garbage', 'not_sure'],
-  ];
-  for (const [verdict, outcome] of verdicts) {
-    const s = await start({
-      sarvam: { speak: async () => ({ audioBase64: 'QUJD', mime: 'audio/wav', source: 'replay', latencyMs: 1 }) },
-      evaluate: () => verdict,
-    });
-    try {
-      const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'od-IN' });
-      assert.equal(r.json.source, 'replay');
-      assert.deepEqual(r.json.sources, { translate: 'live', speak: 'replay' });
-      s.timers.fireTimeouts();
-      const state = s.app.hub.getState();
-      assert.equal(state.trials[0].outcome, outcome);
-      assert.equal(state.trials[0].source, 'replay');
-    } finally {
-      await s.stop();
-    }
-  }
-  const thrower = await start({ evaluate: () => { throw new Error('boom'); } });
-  try {
-    await post(thrower.port, '/api/shout', { text: 'x', targetLang: 'en-IN' });
-    thrower.timers.fireTimeouts();
-    assert.equal(thrower.app.hub.getState().trials[0].outcome, 'not_sure');
-  } finally {
-    await thrower.stop();
   }
 });
 
@@ -675,7 +662,6 @@ test('upstream failures: 503 for missing replay, 502 otherwise, and nothing sens
       assert.equal(r.text.includes(FAKE_KEY), false);
       assert.equal(s.logs.join('\n').includes(FAKE_KEY), false);
       assert.equal(/\bat .*:\d+:\d+/.test(r.text), false);
-      assert.equal(s.app.hub.getState().trials.length, 0);
     }
     // the in-flight guard is released after a failure
     assert.equal((await post(s2.port, '/api/shout', { text: 'x', targetLang: 'hi-IN' })).status, 502);
@@ -685,51 +671,56 @@ test('upstream failures: 503 for missing replay, 502 otherwise, and nothing sens
   }
 });
 
-test('speech failure still delivers the call, marked as having no audio', async () => {
+test('speech failure still delivers the note, marked as having no audio', async () => {
   const s = await start({ sarvam: { speak: async () => { throw new Error('tts down'); } } });
   try {
     const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'hi-IN' });
     assert.equal(r.status, 200);
     assert.equal(r.json.ttsAvailable, false);
     assert.equal(r.json.ttsAudioBase64, null);
-    assert.equal(r.json.meaning, 'speed_up');
-    assert.deepEqual(r.json.sources, { translate: 'live', speak: null });
-    assert.equal(s.timers.pendingTimeouts().length, 1);
+    assert.equal(r.json.translatedText, 'Move faster!');
+    assert.equal(r.json.sources.speak, null);
   } finally {
     await s.stop();
   }
 });
 
-test('a new call ends the open observation window early; concurrent shouts get 429', async () => {
-  let release;
-  const gate = new Promise((r) => { release = r; });
-  let slow = false;
+test('a failed re-translation means no speech rather than the wrong language', async () => {
   const s = await start({
     sarvam: {
-      translate: async () => {
-        if (slow) await gate;
-        return { text: 'faster', source: 'live', latencyMs: 1 };
+      translate: async ({ sourceLang }) => {
+        if (sourceLang === 'en-IN') throw new Error('downstream down');
+        return { text: 'English text', language: 'ml-IN', source: 'live', latencyMs: 5 };
       },
     },
   });
   try {
-    await post(s.port, '/api/shout', { text: 'one', targetLang: 'en-IN' });
-    s.clock.t += 3000;
-    await post(s.port, '/api/shout', { text: 'two', targetLang: 'en-IN' });
-    let state = s.app.hub.getState();
-    assert.equal(state.trials.length, 1);
-    assert.equal(state.trials[0].callId, 'call-1');
-    assert.equal(state.trials[0].superseded, true);
-    assert.equal(state.trials[0].windowMs, 3000);
-    assert.equal(s.timers.pendingTimeouts().length, 1);
-    s.timers.fireTimeouts();
-    state = s.app.hub.getState();
-    assert.deepEqual(state.trials.map((t) => [t.callId, t.superseded]), [['call-1', true], ['call-2', false]]);
+    const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'hi-IN' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ttsAvailable, false);
+    assert.equal(r.json.spokenText, null);
+    assert.deepEqual(r.json.failedOps, ['speak_translate']);
+    assert.equal(s.calls.speak.length, 0);
+  } finally {
+    await s.stop();
+  }
+});
 
-    slow = true;
-    const first = post(s.port, '/api/shout', { text: 'three', targetLang: 'en-IN' });
-    for (let i = 0; i < 200 && s.calls.match.length < 2; i += 1) await new Promise((r) => setTimeout(r, 2));
-    const busy = await post(s.port, '/api/shout', { text: 'four', targetLang: 'en-IN' });
+test('concurrent shouts get 429 and the guard is released after the first finishes', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const s = await start({
+    sarvam: {
+      translate: async (args) => {
+        if (args.text === 'hold') await gate;
+        return { text: 'done', language: 'ml-IN', source: 'live', latencyMs: 1 };
+      },
+    },
+  });
+  try {
+    const first = post(s.port, '/api/shout', { text: 'hold', targetLang: 'en-IN' });
+    for (let i = 0; i < 200 && s.calls.translate.length < 1; i += 1) await new Promise((r) => setTimeout(r, 2));
+    const busy = await post(s.port, '/api/shout', { text: 'other', targetLang: 'en-IN' });
     assert.equal(busy.status, 429);
     assert.equal(busy.json.error.code, 'busy');
     release();
@@ -740,20 +731,55 @@ test('a new call ends the open observation window early; concurrent shouts get 4
   }
 });
 
-test('a call superseded in the same millisecond gets a not_sure verdict, not a fabricated one', async () => {
-  const s = await start({ matchMeaning: () => ({ meaning: 'stop', confidence: 'high', matchedKeyword: 'stop' }) });
+test('POST /api/speak re-speaks stored text in the chosen language', async () => {
+  const s = await start();
   try {
-    await post(s.port, '/api/stroke', strokes([100, 22, 7])); // rowing baseline at 22 spm
-    await post(s.port, '/api/shout', { text: 'one', targetLang: 'en-IN' });
-    await post(s.port, '/api/shout', { text: 'two', targetLang: 'en-IN' }); // same clock tick: zero observation window
-    const state = s.app.hub.getState();
-    assert.equal(state.trials.length, 1);
-    assert.equal(state.trials[0].superseded, true);
-    assert.equal(state.trials[0].windowMs, 0);
-    assert.equal(state.trials[0].outcome, 'not_sure'); // zero time observed: not "obeyed"
-    assert.equal(s.calls.evaluate.length, 0);
-    s.timers.fireTimeouts();
-    assert.equal(s.app.hub.getState().trials.length, 2);
+    const r = await post(s.port, '/api/speak', { text: 'Move faster!', targetLang: 'hi-IN' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ttsAudioBase64, 'QUJD');
+    assert.equal(r.json.spokenLang, 'hi-IN');
+    assert.equal(r.json.spokenText, 'तेज़ चलाओ');
+    assert.equal(r.json.ttsProvider, 'sarvam');
+    assert.deepEqual(s.calls.translate[0], { text: 'Move faster!', sourceLang: 'en-IN', targetLang: 'hi-IN' });
+
+    const en = await post(s.port, '/api/speak', { text: 'Move faster!', targetLang: 'en-IN' });
+    assert.equal(en.status, 200);
+    assert.equal(en.json.spokenText, 'Move faster!');
+    assert.equal(s.calls.translate.length, 1); // English is not re-translated
+  } finally {
+    await s.stop();
+  }
+});
+
+test('ttsProvider "smallest" speaks through the injected client', async () => {
+  const spoke = [];
+  const smallest = {
+    speak: async (args) => {
+      spoke.push(args);
+      return { audioBase64: 'U01T', mime: 'audio/wav', source: 'live', latencyMs: 7 };
+    },
+    mode: 'live',
+  };
+  const s = await start({ smallest });
+  try {
+    const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'en-IN', ttsProvider: 'smallest' });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ttsAudioBase64, 'U01T');
+    assert.equal(r.json.ttsProvider, 'smallest');
+    assert.deepEqual(spoke, [{ text: 'Move faster!', targetLang: 'en-IN' }]);
+    const bad = await post(s.port, '/api/shout', { text: 'x', targetLang: 'en-IN', ttsProvider: 'smallest', mime: null });
+    assert.equal(bad.status, 200);
+  } finally {
+    await s.stop();
+  }
+});
+
+test('ttsProvider "smallest" without a configured client is a clear 400', async () => {
+  const s = await start();
+  try {
+    const r = await post(s.port, '/api/shout', { text: 'x', targetLang: 'en-IN', ttsProvider: 'smallest' });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error.code, 'tts_provider_unavailable');
   } finally {
     await s.stop();
   }
@@ -795,9 +821,9 @@ test('banner prints LAN URLs and the mode but never a secret', () => {
   const conf = resolveConfig({ SARVAM_API_KEY: FAKE_KEY });
   const text = bannerLines({ ...conf, port: 3000, addresses }).join('\n');
   assert.match(text, /LIVE/);
+  assert.match(text, /malayalam-notch/);
   assert.match(text, /http:\/\/10\.0\.0\.7:3000\/phone/);
   assert.match(text, /SARVAM_API_KEY set/);
-  assert.match(text, /UNVERIFIED/);
   assert.equal(text.includes(FAKE_KEY), false);
   const replay = bannerLines({ ...resolveConfig({ SARVAM_MODE: 'live' }), port: 1, addresses: [] }).join('\n');
   assert.match(replay, /SARVAM_API_KEY is not set/);

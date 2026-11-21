@@ -1,23 +1,22 @@
-// The call archive: a capped, searchable list of every heard shout, persisted
-// as JSON lines under a git-ignored data/ folder. Audio bytes and API keys are
-// never stored here. All file errors are logged and swallowed — archiving must
-// never fail a shout.
+// The note archive: a capped, searchable list of every translated shout,
+// persisted as JSON lines under a git-ignored data/ folder. Audio bytes and
+// API keys are never stored here. All file errors are logged and swallowed —
+// archiving must never fail a shout.
 import fs from 'node:fs';
 import path from 'node:path';
 
 export const ARCHIVE_MAX = 500;
 // Keep in sync with SHOUT_SOURCES in server/hub.js.
 export const SOURCES = Object.freeze([
-  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest',
+  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest', 'notch_drop',
 ]);
-export const VERDICTS = Object.freeze(['obeyed', 'not_obeyed', 'not_sure']);
 
 const TEXT_MAX = 2000;
 const ID_RE = /^e-(\d+)$/;
 const clip = (v, n) => (typeof v === 'string' && v !== '' ? v.slice(0, n) : null);
 
 function searchable(e) {
-  return [e.text, e.transcript, e.meaning, e.language, e.filename, e.source]
+  return [e.text, e.transcript, e.roman, e.language, e.filename, e.source]
     .filter((s) => typeof s === 'string' && s !== '')
     .join('\n')
     .toLowerCase();
@@ -77,6 +76,8 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
     }
   }
 
+  // One translated note: the English `text`, the Malayalam-script `transcript`
+  // and the romanised `roman` line, each only what the API returned.
   function add(entry = {}) {
     const stored = {
       id: `e-${++seq}`,
@@ -85,10 +86,8 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
       filename: clip(entry.filename, 200),
       language: clip(entry.language, 40),
       text: typeof entry.text === 'string' ? entry.text.slice(0, TEXT_MAX) : '',
-      meaning: clip(entry.meaning, 40),
-      confidence: clip(entry.confidence, 40),
-      verdict: VERDICTS.includes(entry.verdict) ? entry.verdict : null,
-      reason: clip(entry.reason, 300),
+      transcript: clip(entry.transcript, TEXT_MAX),
+      roman: clip(entry.roman, TEXT_MAX),
     };
     entries.push(stored);
     if (entries.length > maxEntries) {
@@ -100,16 +99,6 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
     return stored;
   }
 
-  function update(id, patch = {}) {
-    const e = entries.find((x) => x.id === id);
-    if (!e) return null;
-    if ('verdict' in patch) e.verdict = VERDICTS.includes(patch.verdict) ? patch.verdict : null;
-    if ('reason' in patch) e.reason = clip(patch.reason, 300);
-    if ('meaning' in patch) e.meaning = clip(patch.meaning, 40);
-    writeAll();
-    return e;
-  }
-
   function list({ q = '', limit } = {}) {
     const needle = String(q || '').trim().toLowerCase();
     const matched = needle ? entries.filter((e) => searchable(e).includes(needle)) : entries;
@@ -117,10 +106,18 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
     return Number.isInteger(limit) && limit >= 0 ? out.slice(0, limit) : out;
   }
 
+  // Entries since local midnight — the island's "notes translated today" count.
+  function countToday(nowT = now()) {
+    const dayStart = new Date(nowT);
+    dayStart.setHours(0, 0, 0, 0);
+    const t0 = dayStart.getTime();
+    return entries.filter((e) => Number.isFinite(e.time) && e.time >= t0).length;
+  }
+
   return {
     add,
-    update,
     list,
+    countToday,
     get size() { return entries.length; },
     file,
   };
@@ -132,7 +129,7 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
 // break; embedded quotes are doubled.
 
 export const CSV_COLUMNS = Object.freeze([
-  'id', 'time', 'source', 'filename', 'language', 'text', 'meaning', 'confidence', 'verdict', 'reason',
+  'id', 'time', 'source', 'filename', 'language', 'transcript', 'roman', 'text',
 ]);
 
 function csvCell(value) {

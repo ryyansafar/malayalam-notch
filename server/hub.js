@@ -1,68 +1,9 @@
-// SSE hub, immutable session state, the spoken phrase table and the validation of
-// inbound phone/stroke/shout messages for rowing-call.
-// The state object is never mutated: every change builds a new frozen object.
+// SSE hub, immutable session state and the validation of inbound phone/shout
+// messages for the Malayalam notch product. The state object is never mutated:
+// every change builds a new frozen object.
 
 export const LANGS = Object.freeze(['en-IN', 'hi-IN', 'bn-IN', 'od-IN', 'ta-IN']);
-export const SSE_EVENTS = Object.freeze(['state', 'stroke', 'call', 'result', 'phone']);
-
-// What Bulbul speaks to the rower for each meaning.
-// HONESTY: these phrases were written at the event and have NOT been reviewed by
-// native speakers of Hindi, Bengali, Odia or Tamil. State exposes phrasesReviewed:false.
-export const PHRASES_REVIEWED = false;
-export const PHRASES = Object.freeze({
-  start: Object.freeze({
-    'en-IN': 'Start rowing',
-    'hi-IN': 'चप्पू चलाना शुरू करो',
-    'bn-IN': 'দাঁড় টানা শুরু করো',
-    'od-IN': 'ଆହୁଲା ମାରିବା ଆରମ୍ଭ କର',
-    'ta-IN': 'துடுப்பு போடத் தொடங்கு',
-  }),
-  speed_up: Object.freeze({
-    'en-IN': 'Row faster',
-    'hi-IN': 'तेज़ चलाओ',
-    'bn-IN': 'আরও তাড়াতাড়ি টানো',
-    'od-IN': 'ଆହୁରି ଜୋରରେ ମାର',
-    'ta-IN': 'வேகமாக போடு',
-  }),
-  slow_down: Object.freeze({
-    'en-IN': 'Row slower',
-    'hi-IN': 'धीरे चलाओ',
-    'bn-IN': 'আস্তে টানো',
-    'od-IN': 'ଧୀରେ ମାର',
-    'ta-IN': 'மெதுவாக போடு',
-  }),
-  hold: Object.freeze({
-    'en-IN': 'Hold',
-    'hi-IN': 'चप्पू थामे रखो',
-    'bn-IN': 'দাঁড় ধরে রাখো',
-    'od-IN': 'ଆହୁଲା ଧରି ରଖ',
-    'ta-IN': 'அப்படியே பிடி',
-  }),
-  ready: Object.freeze({
-    'en-IN': 'Get ready',
-    'hi-IN': 'तैयार हो जाओ',
-    'bn-IN': 'তৈরি হও',
-    'od-IN': 'ପ୍ରସ୍ତୁତ ହୁଅ',
-    'ta-IN': 'தயாராகு',
-  }),
-  stop: Object.freeze({
-    'en-IN': 'Stop rowing',
-    'hi-IN': 'रुक जाओ',
-    'bn-IN': 'থামো',
-    'od-IN': 'ବନ୍ଦ କର',
-    'ta-IN': 'நிறுத்து',
-  }),
-});
-
-export function phraseFor(meaning, lang) {
-  const row = Object.hasOwn(PHRASES, meaning) ? PHRASES[meaning] : null;
-  return row && Object.hasOwn(row, lang) ? row[lang] : null;
-}
-
-export const MAX_STROKES = 600; // stroke events kept in memory
-export const MAX_TRIALS = 500; // evidence rows kept in memory
-const RECENT_STROKES = 120; // stroke events served in the public state
-const OUTCOMES = Object.freeze({ obeyed: 'obeyed', not_obeyed: 'notObeyed', not_sure: 'notSure' });
+export const SSE_EVENTS = Object.freeze(['state', 'received', 'note', 'phone']);
 
 export function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -77,15 +18,8 @@ export function initialState({ mode = 'replay', startedT = 0 } = {}) {
     mode,
     startedT,
     langs: LANGS,
-    phrasesReviewed: PHRASES_REVIEWED,
-    callsVerified: false,
-    phone: { connected: false, lastSeenT: null, userAgent: null, simulated: false },
-    stroke: null,
-    strokes: [],
-    lastCall: null,
-    lastResult: null,
-    trials: [],
-    tally: { obeyed: 0, notObeyed: 0, notSure: 0, total: 0 },
+    phone: { connected: false, lastSeenT: null, userAgent: null },
+    lastNote: null,
   });
 }
 
@@ -93,46 +27,18 @@ export function withPhone(state, patch) {
   return { ...state, phone: { ...state.phone, ...patch } };
 }
 
-export function withStrokes(state, events) {
-  if (events.length === 0) return state;
-  const strokes = [...state.strokes, ...events].slice(-MAX_STROKES);
-  return { ...state, strokes, stroke: strokes[strokes.length - 1] };
-}
-
-// Audio is delivered once in the SSE call event; it is never stored in state.
-export function stripAudio(call) {
-  const { ttsAudioBase64: _audio, ...rest } = call;
+// Audio is delivered once in the SSE note event; it is never stored in state.
+export function stripAudio(note) {
+  const { ttsAudioBase64: _audio, ...rest } = note;
   return rest;
 }
 
-export function withCall(state, call) {
-  return { ...state, lastCall: stripAudio(call), lastResult: null };
-}
-
-export function withTrial(state, trial) {
-  const key = OUTCOMES[trial.outcome];
-  if (!key) throw new TypeError(`unknown trial outcome: ${String(trial.outcome)}`);
-  const row = stripAudio(trial);
-  const kept = [...state.trials, row].slice(-MAX_TRIALS);
-  const tally = { ...state.tally, [key]: state.tally[key] + 1, total: state.tally.total + 1 };
-  return { ...state, trials: kept, tally, lastResult: row };
-}
-
-// Most recent smoothed rate before t, or 0 when the rower was not rowing
-// (no stroke within staleMs before the call).
-export function baselineSpm(state, t, staleMs = 8000) {
-  const before = state.strokes.filter((e) => e.t <= t && t - e.t <= staleMs);
-  const last = before[before.length - 1];
-  return last && Number.isFinite(last.rateSpm) ? last.rateSpm : 0;
-}
-
-export function strokesBetween(state, fromT, toT) {
-  return state.strokes.filter((e) => e.t > fromT && e.t <= toT);
+export function withNote(state, note) {
+  return { ...state, lastNote: stripAudio(note) };
 }
 
 export function publicState(state, serverT) {
-  const { strokes, ...rest } = state;
-  return { ...rest, recentStrokes: strokes.slice(-RECENT_STROKES), serverT };
+  return { ...state, serverT };
 }
 
 export function formatSse(event, data) {
@@ -213,7 +119,7 @@ export function createHub(options = {}) {
   };
 }
 
-// ---- Inbound message validation (system boundary for /api/phone, /api/stroke, /api/shout) ----
+// ---- Inbound message validation (system boundary for /api/phone, /api/shout) ----
 
 export class ValidationError extends Error {
   constructor(code, message) {
@@ -230,36 +136,7 @@ export function validatePhone(body, req) {
   if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
   const ua = present(body.userAgent) ? body.userAgent : req.headers['user-agent'] || null;
   if (ua !== null && typeof ua !== 'string') throw bad('invalid_user_agent', 'userAgent must be a string');
-  const simulated = [body.simulated, body.simulation].includes(true) || [body.motion, body.mode].includes('simulated');
-  return { userAgent: ua === null ? null : ua.slice(0, 300), simulated };
-}
-
-export function validateStrokes(body, cfg) {
-  const list = Array.isArray(body) ? body : isObject(body) ? body.events : null;
-  if (!Array.isArray(list)) throw bad('invalid_events', 'Body must be { "events": [ { "type": "stroke", "t", "rateSpm", "count" } ] }');
-  if (list.length > cfg.maxStrokeBatch) throw bad('too_many_events', `events must hold at most ${cfg.maxStrokeBatch} items`);
-  const events = list.map((e, i) => {
-    if (!isObject(e)) throw bad('invalid_event', `events[${i}] must be an object`);
-    if (e.type !== undefined && e.type !== 'stroke') throw bad('invalid_event', `events[${i}].type must be "stroke"`);
-    if (!Number.isFinite(e.t) || Math.abs(e.t) > 1e15) throw bad('invalid_event', `events[${i}].t must be a finite number (ms) within +/-1e15`);
-    const rate = e.rateSpm === undefined ? null : e.rateSpm;
-    if (rate !== null && !(Number.isFinite(rate) && rate >= 0 && rate <= 400)) throw bad('invalid_event', `events[${i}].rateSpm must be a number between 0 and 400, or null`);
-    if (!(Number.isInteger(e.count) && e.count >= 0)) throw bad('invalid_event', `events[${i}].count must be a non-negative integer`);
-    return { t: e.t, rateSpm: rate, count: e.count, simulated: e.simulated === true };
-  });
-  const sentAt = isObject(body) && Number.isFinite(body.sentAt) && Math.abs(body.sentAt) <= 1e15 ? body.sentAt : null;
-  return { events, sentAt, simulated: isObject(body) && body.simulated === true };
-}
-
-// Phone timestamps are on the phone clock (performance.now). Map them onto the server
-// clock by anchoring the batch: sentAt (if given) or the newest event equals "now".
-export function toServerEvents({ events, sentAt, simulated }, nowT) {
-  if (events.length === 0) return [];
-  const newest = Math.max(...events.map((e) => e.t));
-  const anchor = sentAt !== null && sentAt >= newest ? sentAt : newest;
-  return events.map((e) => ({
-    type: 'stroke', t: nowT - (anchor - e.t), phoneT: e.t, rateSpm: e.rateSpm, count: e.count, simulated: simulated || e.simulated,
-  }));
+  return { userAgent: ua === null ? null : ua.slice(0, 300) };
 }
 
 function decodeAudio(raw, mimeRaw, cfg) {
@@ -276,15 +153,17 @@ function decodeAudio(raw, mimeRaw, cfg) {
   return { audio, mime };
 }
 
-// Where a shout came from: a dropped voice note, the laptop microphone, typed
-// text, the phone's hold-to-record button, an OS share sheet, a watched folder
-// or the ingest CLI. Keep in sync with SOURCES in server/archive.js.
+// Where a note came from: a dropped voice note, a microphone, typed text, the
+// phone's hold-to-record button, an OS share sheet, a watched folder, the
+// ingest CLI or a file dropped onto the MacBook notch.
+// Keep in sync with SOURCES in server/archive.js.
 export const SHOUT_SOURCES = Object.freeze([
-  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest',
+  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest', 'notch_drop',
 ]);
 
 export function validateShout(body, cfg) {
   if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
+  // `mode` is accepted and ignored: older callers may send it.
   if (!LANGS.includes(body.targetLang)) throw bad('invalid_target_lang', `targetLang must be one of: ${LANGS.join(', ')}`);
   const hasText = present(body.text);
   const hasAudio = present(body.audioBase64);

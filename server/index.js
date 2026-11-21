@@ -1,5 +1,6 @@
-// rowing-call HTTP(S) server: routes, validation, static files and the shout flow.
-// Everything external is injected into createServer so tests never touch the network.
+// Malayalam-in-the-notch HTTP(S) server: routes, validation, static files and
+// the translate flow. Everything external is injected into createServer so
+// tests never touch the network.
 import http from 'node:http';
 import https from 'node:https';
 import { promises as fs } from 'node:fs';
@@ -17,7 +18,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_LANG = 'ml-IN';
 const TTS_PROVIDERS = Object.freeze(['sarvam', 'smallest']);
 const DEFAULT_TTS_PROVIDER = 'sarvam';
-const SECOND_EAR_LANGUAGE = 'ml'; // Pulse language code for the coach's Malayalam
+// The three Saaras readings of one audio note (docs/SARVAM-FINDINGS.md):
+// Malayalam script, romanised Malayalam and English, each an independent call.
+const STT_OPS = Object.freeze({ sourceText: 'transcribe', romanText: 'translit', translatedText: 'translate' });
 const MIME = Object.freeze({
   '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8',
@@ -30,21 +33,15 @@ const BASE_HEADERS = Object.freeze({ 'X-Content-Type-Options': 'nosniff', 'Cache
 const PAGE_CSP = "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'";
 const DEFAULTS = Object.freeze({
   mode: 'replay', rootDir: ROOT, https: false,
-  windowMs: 8000, // observation window passed to evaluate()
-  graceMs: 750, // wait for the phone's last 500 ms stroke batch before judging
-  baselineStaleMs: 8000, // no stroke this long before the call means baseline 0 spm
   phoneTimeoutMs: 10000, // heartbeats arrive every 3 s
   maxBodyBytes: 8 * 1024 * 1024, keepAliveMs: 15000, maxSseClients: 50,
-  maxTextChars: 500, maxStrokeBatch: 200,
-  secondEar: false, // SECOND_EAR=1: also transcribe the shout with smallest.ai Pulse and compare meanings
-  modelFallback: false, // MODEL_FALLBACK=1: ask the classifier when the rules found no keyword at all
-  modelTimeoutMs: 6500, // hard stop for the classifier; a slow model becomes "not sure"
+  maxTextChars: 500, maxSpeakChars: 2000,
   watchDirs: [], // folders the voice-note watcher reads (dashboard shows them)
   shareCutTtlMs: 120000, // how long a "use the first 30 s" offer stays valid
 });
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
-  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/stroke': ['POST'], '/api/shout': ['POST'],
+  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'],
   '/api/providers': ['GET'], '/api/archive': ['GET'], '/api/archive.csv': ['GET'], '/api/archive.json': ['GET'],
   '/share': ['POST'], '/share/cut': ['POST'],
 });
@@ -182,46 +179,38 @@ const lane = (r) => (r && r.source === 'live' ? 'live' : 'replay'); // unknown i
 const ms = (r) => (r && Number.isFinite(r.latencyMs) ? r.latencyMs : 0);
 const textOf = (r) => (r && typeof r.text === 'string' ? r.text.trim() : '');
 
-// Optional shout fields that pick the speech provider and ask for the coach's call to be spoken back.
+// Optional shout fields: which speech provider reads the translation back.
 function shoutOptions(body, smallest) {
   const provider = body.ttsProvider === undefined || body.ttsProvider === null ? DEFAULT_TTS_PROVIDER : body.ttsProvider;
   if (!TTS_PROVIDERS.includes(provider)) throw bad('invalid_tts_provider', `ttsProvider must be one of: ${TTS_PROVIDERS.join(', ')}`);
   if (provider === 'smallest' && !smallest) throw bad('tts_provider_unavailable', 'ttsProvider "smallest" is not configured on this server');
-  const coach = body.coachPlayback === undefined || body.coachPlayback === null ? false : body.coachPlayback;
-  if (typeof coach !== 'boolean') throw bad('invalid_coach_playback', 'coachPlayback must be true or false');
-  if (coach && !smallest) throw bad('coach_playback_unavailable', 'coachPlayback needs the smallest.ai client, which is not configured on this server');
-  return { ttsProvider: provider, coachPlayback: coach };
-}
-
-// Combines the two independent readings of one shout. `a` is Saaras, `b` is Pulse plus text translation.
-function combineEars(a, b) {
-  if (a.meaning && b.meaning) {
-    return a.meaning === b.meaning
-      ? { ears: 'agree', match: { ...a, confidence: 'high' } }
-      : { ears: 'disagree', match: { meaning: null, confidence: 'none' } };
-  }
-  if (a.meaning || b.meaning) return { ears: 'single', match: a.meaning ? a : b };
-  return { ears: 'none', match: a };
+  return { ttsProvider: provider };
 }
 
 /**
- * @param {{ sarvam: object, smallest?: object, matchMeaning: Function, evaluate: Function, now?: () => number,
- *   classifier?: { classify: Function }, matchReason?: (text: string) => string|null, archive?: object,
- *   timers?: object, qr?: (url: string) => Promise<string>, log?: (line: string) => void, config?: object }} deps
+ * @param {{ sarvam: object, smallest?: object, archive?: object,
+ *   timers?: object, qr?: (url: string) => Promise<string>, log?: (line: string) => void,
+ *   now?: () => number, config?: object }} deps
  * @returns {{ server: import('node:http').Server, hub: object, archive: object, listen: Function, close: Function }}
  */
 export function createServer(deps = {}) {
-  const { sarvam, smallest = null, classifier = null, matchReason = null, archive: archiveDep = null, matchMeaning, evaluate, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
+  const { sarvam, smallest = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
   const cfg = Object.freeze({ lanAddresses: lanAddresses(), ...DEFAULTS, ...deps.config });
   const hub = H.createHub({ initial: H.initialState({ mode: cfg.mode, startedT: now() }), timers, keepAliveMs: cfg.keepAliveMs, maxClients: cfg.maxSseClients });
   const archive = archiveDep || createArchive({ log, now });
   const publicDir = path.join(cfg.rootDir, 'public');
-  const snapshot = () => H.publicState(hub.getState(), now());
+  const snapshot = () => ({ ...H.publicState(hub.getState(), now()), notesToday: countNotesToday() });
   let seq = 0;
   let shoutInFlight = false;
-  let pending = null;
-  const pendingArchive = new Map(); // callId -> archive entry id, until the verdict lands
   const pendingCuts = new Map(); // token -> { bytes, mime, filename, expiresT } for a /share "first 30 s" offer
+
+  function countNotesToday() {
+    try {
+      return typeof archive.countToday === 'function' ? archive.countToday(now()) : 0;
+    } catch {
+      return 0;
+    }
+  }
 
   const sweep = timers.setInterval(() => {
     const { phone } = hub.getState();
@@ -245,58 +234,6 @@ export function createServer(deps = {}) {
     return [own, ...lan.filter((u) => u !== own)];
   }
 
-  function judge(args) {
-    try {
-      const v = evaluate(args);
-      if (!isObject(v) || ![true, false, null].includes(v.obeyed)) throw new TypeError('bad verdict');
-      const num = (x) => (Number.isFinite(x) ? x : null);
-      return { obeyed: v.obeyed, strokesUntilObeyed: num(v.strokesUntilObeyed), deltaSpm: num(v.deltaSpm), reason: String(v.reason || '').slice(0, 300) };
-    } catch (err) {
-      log(`[shout] evaluate failed: ${errorName(err)}`);
-      return { obeyed: null, strokesUntilObeyed: null, deltaSpm: null, reason: 'Obedience could not be evaluated.' };
-    }
-  }
-
-  function record(trial) {
-    const archiveId = pendingArchive.get(trial.callId);
-    pendingArchive.delete(trial.callId);
-    if (archiveId) {
-      try {
-        archive.update(archiveId, { verdict: trial.outcome, reason: trial.reason });
-      } catch (err) {
-        log(`[archive] verdict update failed: ${errorName(err)}`);
-      }
-    }
-    hub.update((s) => H.withTrial(s, trial));
-    hub.broadcast('result', trial);
-    hub.broadcast('state', snapshot());
-    return trial;
-  }
-
-  function finalize(call, windowMs, superseded) {
-    const events = H.strokesBetween(hub.getState(), call.t, call.t + windowMs);
-    const verdict = windowMs > 0
-      ? judge({ meaning: call.meaning, callT: call.t, events, baselineSpm: call.baselineSpm, windowMs })
-      : { obeyed: null, strokesUntilObeyed: null, deltaSpm: null, reason: 'not sure: superseded before any observation time' };
-    const outcome = verdict.obeyed === true ? 'obeyed' : verdict.obeyed === false ? 'not_obeyed' : 'not_sure';
-    record({ ...H.stripAudio(call), ...verdict, status: 'judged', stage: 'obedience', outcome, windowMs, strokesObserved: events.length, superseded });
-  }
-
-  // Watches strokes for windowMs after the call, then judges. A newer call ends an open window early.
-  function observe(call) {
-    if (pending) pending.finish(true);
-    const entry = { done: false };
-    entry.finish = (superseded) => {
-      if (entry.done) return;
-      entry.done = true;
-      timers.clearTimeout(entry.timer);
-      if (pending === entry) pending = null;
-      finalize(call, superseded ? Math.max(0, now() - call.t) : cfg.windowMs, superseded);
-    };
-    entry.timer = timers.setTimeout(() => entry.finish(false), cfg.windowMs + cfg.graceMs);
-    pending = entry;
-  }
-
   async function upstream(stage, fn) {
     try {
       return await fn();
@@ -310,101 +247,49 @@ export function createServer(deps = {}) {
     }
   }
 
-  // matchMeaning result reduced to a plain record; meaning is null unless the matcher was confident.
-  function meaningOf(text) {
-    const found = matchMeaning(text);
-    const m = isObject(found) ? found : {};
-    const known = m.confidence !== 'none' && typeof m.meaning === 'string';
+  // One Saaras reading of the audio, with a fallback for clients that only
+  // expose translate(): the English field still works, the others report failed.
+  function sttCall(input, mode) {
+    if (typeof sarvam.stt === 'function') {
+      return sarvam.stt({ audio: input.audio, mime: input.mime, sourceLang: SOURCE_LANG, mode });
+    }
+    if (mode === 'translate') return sarvam.translate({ audio: input.audio, mime: input.mime, sourceLang: SOURCE_LANG });
+    return Promise.reject(Object.assign(new Error(`client has no ${mode} speech-to-text`), { name: 'UnsupportedStt' }));
+  }
+
+  // The three Saaras modes in parallel (docs/SARVAM-FINDINGS.md). A mode that
+  // fails never sinks the others; only a clean sweep of failures is an error.
+  async function hearAudio(input) {
+    const fields = {};
+    const sources = {};
+    const failedOps = [];
+    const errors = [];
+    let latencyMs = 0;
+    await Promise.all(Object.entries(STT_OPS).map(async ([field, mode]) => {
+      try {
+        const r = await upstream(mode, () => sttCall(input, mode));
+        fields[field] = textOf(r);
+        sources[mode] = lane(r);
+        fields.detectedLanguage = fields.detectedLanguage || (typeof r.language === 'string' && r.language ? r.language : null);
+        latencyMs = Math.max(latencyMs, ms(r));
+      } catch (err) {
+        failedOps.push(mode);
+        sources[mode] = null;
+        errors.push(err);
+        log(`[shout] ${mode} reading failed: ${errorName(err)}`);
+      }
+    }));
+    if (errors.length === Object.keys(STT_OPS).length) throw errors[0];
+    return { ...fields, sources, failedOps, latencyMs };
+  }
+
+  async function hearText(input) {
+    const tr = await upstream('translate', () => sarvam.translate({ text: input.text, sourceLang: SOURCE_LANG }));
     return {
-      meaning: known ? m.meaning : null, confidence: known ? m.confidence : 'none',
-      matchedKeyword: typeof m.matchedKeyword === 'string' ? m.matchedKeyword : null,
+      sourceText: input.text, romanText: null, translatedText: textOf(tr),
+      detectedLanguage: typeof tr.language === 'string' && tr.language ? tr.language : null,
+      sources: { translate: lane(tr) }, failedOps: [], latencyMs: ms(tr),
     };
-  }
-
-  // Model fallback. All three must hold: the flag, a classifier and the rules' own reason helper.
-  const modelFallbackOn = Boolean(cfg.modelFallback && classifier && typeof classifier.classify === 'function' && typeof matchReason === 'function');
-  const reasonOf = (text) => {
-    try {
-      return matchReason(text);
-    } catch {
-      return 'error'; // an unknown reason is never 'no_match'
-    }
-  };
-
-  // The model may be asked only when the rules found no keyword at all ('no_match').
-  // Negation, conflict, empty text and disagreeing ears stay "not sure" and never reach it.
-  function mayAskModel({ translatedText, match, ears, second }) {
-    if (!modelFallbackOn || match.meaning || ears === 'disagree') return false;
-    if (reasonOf(translatedText) !== 'no_match') return false;
-    const other = second && typeof second.translatedText === 'string' ? second.translatedText.trim() : '';
-    return other === '' || reasonOf(other) === 'no_match';
-  }
-
-  // Never rejects: an error, a timeout or an answer outside the six meanings counts as "none".
-  async function askModel(text) {
-    let timer = null;
-    const started = now();
-    try {
-      const timeout = new Promise((_, reject) => {
-        timer = timers.setTimeout(() => reject(Object.assign(new Error('model timeout'), { name: 'ModelTimeout' })), cfg.modelTimeoutMs);
-      });
-      const out = await Promise.race([classifier.classify({ text }), timeout]);
-      const meaning = isObject(out) && H.phraseFor(out.meaning, 'en-IN') ? out.meaning : null;
-      return {
-        meaning, name: isObject(out) && typeof out.model === 'string' ? out.model.slice(0, 60) : null,
-        latencyMs: ms(out), source: lane(out), error: isObject(out) && typeof out.error === 'string' ? out.error.slice(0, 40) : null,
-      };
-    } catch (err) {
-      const name = errorName(err);
-      log(`[shout] model fallback failed: ${name}`);
-      return { meaning: null, name: null, latencyMs: Math.max(0, now() - started), source: 'replay', error: name };
-    } finally {
-      timers.clearTimeout(timer);
-    }
-  }
-
-  // Applies the model fallback to a finished hearing. `model` is null when the model was not asked.
-  async function withModel(heard) {
-    if (!mayAskModel(heard)) return { ...heard, match: { ...heard.match, matchedBy: heard.match.meaning ? 'rules' : null }, model: null };
-    const model = await askModel(heard.translatedText);
-    const match = model.meaning
-      ? { meaning: model.meaning, confidence: 'model', matchedKeyword: null, matchedBy: 'model' }
-      : { ...heard.match, matchedBy: null };
-    return { ...heard, match, model };
-  }
-
-  const secondEarOn = (input) => Boolean(cfg.secondEar && input.audio && smallest && typeof smallest.transcribe === 'function');
-
-  // Second ear: Pulse transcript in Malayalam, then the existing text translation to English.
-  // Any failure here leaves the first ear to stand alone; it never fails the shout.
-  async function secondEar(input) {
-    try {
-      const heard = await smallest.transcribe({ audio: input.audio, mime: input.mime, language: SECOND_EAR_LANGUAGE });
-      const transcript = textOf(heard);
-      if (transcript === '') return { transcript, translatedText: '', meaning: null, source: lane(heard), latencyMs: ms(heard) };
-      const en = await sarvam.translate({ text: transcript, sourceLang: SOURCE_LANG });
-      const translatedText = textOf(en);
-      const source = lane(heard) === 'live' && lane(en) === 'live' ? 'live' : 'replay';
-      return { transcript, translatedText, ...meaningOf(translatedText), source, latencyMs: ms(heard) + ms(en) };
-    } catch (err) {
-      log(`[shout] second ear failed: ${errorName(err)}`);
-      return null;
-    }
-  }
-
-  // Returns the translation, the chosen meaning and how the two ears compared (ears is null when the second ear is off).
-  async function hear(input) {
-    const query = input.audio ? { audio: input.audio, mime: input.mime } : { text: input.text };
-    const first = upstream('translate', () => sarvam.translate({ ...query, sourceLang: SOURCE_LANG }));
-    if (!secondEarOn(input)) {
-      const tr = await first;
-      return { tr, translatedText: textOf(tr), match: meaningOf(textOf(tr)), ears: null, second: null };
-    }
-    const [tr, second] = await Promise.all([first, secondEar(input)]);
-    const translatedText = textOf(tr);
-    const { ears, match } = combineEars(meaningOf(translatedText), second || { meaning: null });
-    const { meaning, transcript, translatedText: english, source, latencyMs } = second || {};
-    return { tr, translatedText, match, ears, second: second ? { transcript, translatedText: english, meaning, source, latencyMs } : null };
   }
 
   async function speakWith(provider, text, targetLang) {
@@ -413,88 +298,86 @@ export function createServer(deps = {}) {
     return tts && typeof tts.audioBase64 === 'string' && tts.audioBase64 !== '' ? tts : null;
   }
 
-  // The coach's own typed call spoken back in Malayalam. Empty when not asked for, not typed, or it failed.
-  async function coachPlayback(input) {
-    if (!input.coachPlayback || !input.text) return {};
-    try {
-      const out = await smallest.speakMalayalam({ text: input.text });
-      if (!out || typeof out.audioBase64 !== 'string' || out.audioBase64 === '') return {};
-      return { coachAudioBase64: out.audioBase64, coachMime: out.mime || 'audio/wav', coachSource: lane(out), coachLatencyMs: ms(out) };
-    } catch (err) {
-      log(`[shout] coach playback failed: ${errorName(err)}`);
-      return {};
+  // The translation spoken in the chosen language. English is spoken as is;
+  // anything else is translated English -> target first. A failed re-translation
+  // means no audio rather than speech in the wrong language.
+  async function spoken(translatedText, input) {
+    let spokenText = translatedText;
+    let extraMs = 0;
+    if (input.targetLang !== 'en-IN') {
+      try {
+        const t = await upstream('translate', () => sarvam.translate({ text: translatedText, sourceLang: 'en-IN', targetLang: input.targetLang }));
+        spokenText = textOf(t) || translatedText;
+        extraMs = ms(t);
+        if (!textOf(t)) return { spokenText: null, spokenLang: null, tts: null, extraMs, failed: true };
+      } catch (err) {
+        log(`[shout] ${input.targetLang} re-translation failed: ${errorName(err)}`);
+        return { spokenText: null, spokenLang: null, tts: null, extraMs, failed: true };
+      }
     }
+    const tts = await speakWith(input.ttsProvider, spokenText, input.targetLang);
+    return { spokenText: tts ? spokenText : null, spokenLang: input.targetLang, tts, extraMs, failed: false };
   }
-
-  function notSure(base, heard) {
-    const { tr, ears, model } = heard;
-    return record({
-      ...base, t: now(), meaning: null, source: model && model.source !== 'live' ? 'replay' : lane(tr),
-      sources: { translate: lane(tr), speak: null, ...(model ? { model: model.source } : {}) }, latencyMs: heardMs(heard),
-      ttsProvider: null, tts: null,
-      status: 'not_sure', stage: 'meaning', outcome: 'not_sure', obeyed: null, strokesUntilObeyed: null, deltaSpm: null,
-      reason: ears === 'disagree' ? 'two ears disagree' : 'Meaning not recognised from the translated text. Ask for the call again.',
-    });
-  }
-
-  // The two ears run in parallel, so the hearing stage costs the slower of the two.
-  // The model fallback runs after them and adds its own time.
-  const heardMs = ({ tr, second, model }) => Math.max(ms(tr), second ? ms(second) : 0) + (model ? ms(model) : 0);
 
   // One shout at a time; /api/shout, /share and the watched-folder ingest all come through here.
   async function processShout(input) {
-    if (shoutInFlight) throw new HttpError(429, 'busy', 'Another shout is being processed. Try again in a moment.', { 'Retry-After': '1' });
+    if (shoutInFlight) throw new HttpError(429, 'busy', 'Another note is being translated. Try again in a moment.', { 'Retry-After': '1' });
     shoutInFlight = true;
     try {
-      const [result, coach] = await Promise.all([runShout(input), coachPlayback(input)]);
-      return { ...result, ...coach };
+      return await runShout(input);
     } finally {
       shoutInFlight = false;
     }
   }
 
+  function publish(note) {
+    hub.update((s) => H.withNote(s, note));
+    hub.broadcast('note', note);
+    hub.broadcast('state', snapshot());
+    return note;
+  }
+
   async function runShout(input) {
-    const heard = await withModel(await hear(input));
-    const { tr, translatedText, match, ears, second, model } = heard;
-    const modelLive = !model || model.source === 'live';
-    const spokenText = match.meaning ? H.phraseFor(match.meaning, input.targetLang) : null;
     seq += 1;
-    const base = {
-      callId: `call-${seq}`, targetLang: input.targetLang, input: input.audio ? 'audio' : 'text', translatedText,
-      confidence: spokenText ? match.confidence : 'none', matchedKeyword: match.matchedKeyword ?? null,
-      // Only with MODEL_FALLBACK on, so the default payload is unchanged. matchedBy: 'rules' | 'model' | null (not sure).
-      // model is null unless the model was asked: { meaning, name, latencyMs, source, error }.
-      ...(modelFallbackOn ? { matchedBy: spokenText ? match.matchedBy : null, model } : {}),
-      ...(ears ? { ears, secondEar: second } : {}), // present only when the second ear ran
-    };
-    // Archive the heard call before anything is spoken: the entry is created now,
-    // and its verdict is filled in when the trial is judged (or immediately for not_sure).
+    const noteId = `note-${seq}`;
+    hub.broadcast('received', { noteId, t: now(), input: input.audio ? 'audio' : 'text', origin: input.source, filename: input.filename });
+    let heard;
     try {
-      const entry = archive.add({
-        time: now(), source: input.source, filename: input.filename,
-        language: typeof tr.language === 'string' && tr.language ? tr.language : SOURCE_LANG,
-        text: translatedText, meaning: match.meaning, confidence: match.confidence,
+      heard = input.audio ? await hearAudio(input) : await hearText(input);
+    } catch (err) {
+      const code = err instanceof HttpError ? err.code : errorName(err);
+      const failed = { noteId, t: now(), input: input.audio ? 'audio' : 'text', origin: input.source, filename: input.filename, status: 'error', error: { code, message: err instanceof HttpError ? err.message : 'Translation failed.' } };
+      publish(failed);
+      throw err;
+    }
+    const { spokenText, spokenLang, tts, extraMs, failed: speakTranslateFailed } = heard.translatedText
+      ? await spoken(heard.translatedText, input)
+      : { spokenText: null, spokenLang: null, tts: null, extraMs: 0, failed: false };
+    const t = now();
+    const failedOps = [...heard.failedOps, ...(speakTranslateFailed ? ['speak_translate'] : [])];
+    const lanes = [heard.sources.translate, heard.sources.transcribe, heard.sources.translit, tts && lane(tts)].filter(Boolean);
+    const note = {
+      noteId, t, status: 'ok', input: input.audio ? 'audio' : 'text',
+      origin: input.source, filename: input.filename, targetLang: input.targetLang,
+      sourceText: heard.sourceText || null, romanText: heard.romanText || null,
+      translatedText: heard.translatedText || null, detectedLanguage: heard.detectedLanguage || null,
+      spokenText, spokenLang, ttsAudioBase64: tts ? tts.audioBase64 : null,
+      mime: tts ? tts.mime || 'audio/wav' : null, ttsAvailable: Boolean(tts),
+      ttsProvider: input.ttsProvider, tts: tts ? { provider: input.ttsProvider, latencyMs: ms(tts), source: lane(tts) } : null,
+      sources: { ...heard.sources, speak: tts ? lane(tts) : null },
+      failedOps, latencyMs: heard.latencyMs + extraMs + ms(tts),
+      source: lanes.includes('replay') ? 'replay' : 'live',
+    };
+    try {
+      archive.add({
+        time: t, source: input.source, filename: input.filename,
+        language: note.detectedLanguage, text: note.translatedText || '',
+        transcript: note.sourceText, roman: note.romanText,
       });
-      if (entry && entry.id) pendingArchive.set(base.callId, entry.id);
     } catch (err) {
       log(`[archive] add failed: ${errorName(err)}`);
     }
-    if (!spokenText) return notSure(base, heard);
-    const tts = await speakWith(input.ttsProvider, spokenText, input.targetLang);
-    const hasAudio = Boolean(tts);
-    const t = now();
-    const call = {
-      ...base, t, meaning: match.meaning, spokenText, status: 'ok',
-      ttsAudioBase64: hasAudio ? tts.audioBase64 : null, mime: hasAudio ? tts.mime || 'audio/wav' : null, ttsAvailable: hasAudio,
-      ttsProvider: input.ttsProvider, tts: hasAudio ? { provider: input.ttsProvider, latencyMs: ms(tts), source: lane(tts) } : null,
-      source: lane(tr) === 'live' && modelLive && (!hasAudio || lane(tts) === 'live') ? 'live' : 'replay',
-      sources: { translate: lane(tr), speak: hasAudio ? lane(tts) : null, ...(model ? { model: model.source } : {}) },
-      latencyMs: heardMs(heard) + ms(tts), baselineSpm: H.baselineSpm(hub.getState(), t, cfg.baselineStaleMs), windowMs: cfg.windowMs,
-    };
-    hub.update((s) => H.withCall(s, call));
-    hub.broadcast('call', call);
-    observe(call);
-    return call;
+    return publish(note);
   }
 
   // Booleans and mode names only: never a key.
@@ -508,19 +391,14 @@ export function createServer(deps = {}) {
       },
       ttsProviders: smallest ? TTS_PROVIDERS : [DEFAULT_TTS_PROVIDER],
       defaultTtsProvider: DEFAULT_TTS_PROVIDER,
-      coachPlayback: Boolean(smallest && typeof smallest.speakMalayalam === 'function'),
-      secondEar: Boolean(cfg.secondEar && smallest && typeof smallest.transcribe === 'function'),
       watchDirs: Array.isArray(cfg.watchDirs) ? cfg.watchDirs.slice(0, 10) : [],
-      ...(modelFallbackOn ? { modelFallback: true } : {}), // absent when off, so the default answer is unchanged
     };
   }
 
   // One plain sentence for the share-target answer page.
   function shareDetail(result) {
     const heard = result.translatedText ? `heard "${result.translatedText}"` : 'nothing could be translated';
-    return result.meaning
-      ? `${heard} — spoken to the rower as "${String(result.meaning).replace(/_/g, ' ')}".`
-      : `${heard} — meaning not recognised (not sure). Ask for the call again.`;
+    return result.sourceText ? `${heard} — Malayalam: "${result.sourceText}".` : `${heard}.`;
   }
 
   const handlers = {
@@ -554,26 +432,30 @@ export function createServer(deps = {}) {
       hub.broadcast('phone', phone);
       sendJson(res, 200, { ok: true, phone });
     },
-    'POST /api/stroke': async (req, res) => {
-      const t = now();
-      const events = H.toServerEvents(H.validateStrokes(await readJson(req, cfg.maxBodyBytes), cfg), t);
-      const wasConnected = hub.getState().phone.connected;
-      const next = hub.update((s) => H.withPhone(H.withStrokes(s, events), { connected: true, lastSeenT: t }));
-      if (!wasConnected) hub.broadcast('phone', next.phone);
-      for (const event of events) hub.broadcast('stroke', event);
-      sendJson(res, 200, { ok: true, accepted: events.length });
-    },
     'POST /api/shout': async (req, res) => {
       const body = await readJson(req, cfg.maxBodyBytes);
       const input = { ...H.validateShout(body, cfg), ...shoutOptions(body, smallest) };
       const result = await processShout(input);
       sendJson(res, 200, { ok: true, ...result });
     },
+    'POST /api/speak': async (req, res) => {
+      // Speak-again: stored archive text re-spoken in the chosen language.
+      const body = await readJson(req, cfg.maxBodyBytes);
+      if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
+      if (!H.LANGS.includes(body.targetLang)) throw bad('invalid_target_lang', `targetLang must be one of: ${H.LANGS.join(', ')}`);
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (!text) throw bad('invalid_text', 'text must be a non-empty string');
+      if (text.length > cfg.maxSpeakChars) throw bad('invalid_text', `text must be at most ${cfg.maxSpeakChars} characters`);
+      const { ttsProvider } = shoutOptions(body, smallest);
+      const { spokenText, spokenLang, tts, failed } = await spoken(text, { targetLang: body.targetLang });
+      if (failed || !tts) throw new HttpError(502, 'speak_failed', 'The speech call failed.');
+      sendJson(res, 200, { ok: true, spokenText, spokenLang, ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', ttsProvider, tts: { provider: ttsProvider, latencyMs: ms(tts), source: lane(tts) } });
+    },
     'GET /api/archive.csv': async (req, res) => {
-      send(res, 200, 'text/csv; charset=utf-8', archiveCsv(archive.list()), { 'Content-Disposition': 'attachment; filename="rowing-call-archive.csv"' });
+      send(res, 200, 'text/csv; charset=utf-8', archiveCsv(archive.list()), { 'Content-Disposition': 'attachment; filename="malayalam-notes.csv"' });
     },
     'GET /api/archive.json': async (req, res) => {
-      send(res, 200, MIME['.json'], archiveJson(archive.list()), { 'Content-Disposition': 'attachment; filename="rowing-call-archive.json"' });
+      send(res, 200, MIME['.json'], archiveJson(archive.list()), { 'Content-Disposition': 'attachment; filename="malayalam-notes.json"' });
     },
     'POST /share': async (req, res, query) => {
       // Web Share Target (public/phone.webmanifest): the OS share sheet posts
@@ -610,10 +492,10 @@ export function createServer(deps = {}) {
         }));
       }
       try {
-        const result = await processShout({ audio: part.data, mime: sniffed.mime, filename, source: 'whatsapp_share', targetLang: lang, ttsProvider: DEFAULT_TTS_PROVIDER, coachPlayback: false });
+        const result = await processShout({ audio: part.data, mime: sniffed.mime, filename, source: 'whatsapp_share', targetLang: lang, ttsProvider: DEFAULT_TTS_PROVIDER });
         return sendPage(res, 200, sharePage({ title: 'Voice note heard', detail: shareDetail(result) }));
       } catch (err) {
-        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The shout could not be processed.' }));
+        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The note could not be translated.' }));
       }
     },
     'POST /share/cut': async (req, res) => {
@@ -624,10 +506,10 @@ export function createServer(deps = {}) {
         return sendPage(res, 200, sharePage({ title: 'Offer expired', detail: 'That "first 30 seconds" offer is no longer held. Share the note again.' }));
       }
       try {
-        const result = await processShout({ audio: held.bytes, mime: held.mime, filename: held.filename, source: 'whatsapp_share', targetLang: 'en-IN', ttsProvider: DEFAULT_TTS_PROVIDER, coachPlayback: false });
+        const result = await processShout({ audio: held.bytes, mime: held.mime, filename: held.filename, source: 'whatsapp_share', targetLang: 'en-IN', ttsProvider: DEFAULT_TTS_PROVIDER });
         return sendPage(res, 200, sharePage({ title: 'Voice note heard', detail: `first 30 s of "${held.filename}". ${shareDetail(result)}` }));
       } catch (err) {
-        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The shout could not be processed.' }));
+        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The note could not be translated.' }));
       }
     },
   };
@@ -685,8 +567,6 @@ export function createServer(deps = {}) {
     }),
     close: () => new Promise((resolve) => {
       timers.clearInterval(sweep);
-      if (pending) timers.clearTimeout(pending.timer);
-      pending = null;
       hub.close();
       if (!server.listening) return resolve();
       server.close(() => resolve());
@@ -701,15 +581,11 @@ async function main() {
   const warn = (line) => process.stderr.write(`${line}\n`);
   loadEnvFile(path.join(ROOT, '.env'));
   const conf = resolveConfig();
-  const [calls, obedience, client, second, fallback] = await Promise.all([
-    import('../shared/calls.js'), import('../shared/obedience.js'), import('../sarvam/client.js'), import('../smallest/client.js'),
-    import('../sarvam/classifier.js'),
+  const [client, second] = await Promise.all([
+    import('../sarvam/client.js'), import('../smallest/client.js'),
   ]);
   const cacheDir = path.join(ROOT, 'sarvam', 'cache');
   const smallestKey = (process.env.SMALLEST_API_KEY || '').trim();
-  const flag = (name) => ['1', 'true', 'on', 'yes'].includes((process.env[name] || '').trim().toLowerCase());
-  const secondEar = flag('SECOND_EAR');
-  const modelFallback = flag('MODEL_FALLBACK');
   const clientLog = Object.assign((line) => warn(String(line)), { info: warn, warn, error: warn, debug: () => {} });
   const sarvam = client.createSarvamClient({
     apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined,
@@ -717,22 +593,17 @@ async function main() {
   });
   // smallest.ai follows SARVAM_MODE: live needs SMALLEST_API_KEY, auto without a key replays the cache.
   const smallest = second.createSmallestClient({ apiKey: smallestKey || undefined, mode: conf.requestedMode, cacheDir, log: clientLog });
-  // The classifier is built only when the flag is on; it shares the Sarvam key, mode and cache folder.
-  const classifier = modelFallback
-    ? fallback.createMeaningClassifier({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, mode: conf.requestedMode, cacheDir, log: clientLog })
-    : null;
   const archive = createArchive({ file: path.join(ROOT, 'data', 'archive.jsonl'), log: warn });
   const watch = resolveWatchDirs({ env: process.env });
   const watchLang = H.LANGS.includes(process.env.WATCH_LANG) ? process.env.WATCH_LANG : 'en-IN';
   const app = createServer({
-    sarvam, smallest, classifier, archive, matchReason: calls.noMatchReason, matchMeaning: calls.matchMeaning, evaluate: obedience.evaluate, log: warn,
-    config: { mode: conf.mode, https: conf.https, secondEar, modelFallback, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
+    sarvam, smallest, archive, log: warn,
+    config: { mode: conf.mode, https: conf.https, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);
   for (const line of bannerLines({ ...conf, port, addresses: lanAddresses() })) say(line);
-  say(`smallest.ai: ${smallest.mode === 'live' ? 'LIVE' : 'REPLAY'} (SMALLEST_API_KEY ${smallestKey ? 'set' : 'not set'}), second ear ${secondEar ? 'ON' : 'off'}`);
-  say(`model fallback: ${classifier ? `ON (${classifier.model}, ${classifier.mode === 'live' ? 'LIVE' : 'REPLAY'}, only when the rules find no keyword)` : 'off'}`);
-  say(`call archive: data/archive.jsonl (${archive.size} entr${archive.size === 1 ? 'y' : 'ies'}, newest first, capped at 500)`);
+  say(`smallest.ai: ${smallest.mode === 'live' ? 'LIVE' : 'REPLAY'} (SMALLEST_API_KEY ${smallestKey ? 'set' : 'not set'})`);
+  say(`note archive: data/archive.jsonl (${archive.size} entr${archive.size === 1 ? 'y' : 'ies'}, newest first, capped at 500)`);
 
   // Watched-folder ingest: audio files that appear in the inbox (or in
   // WATCH_DIRS folders) are posted to this server's own shout endpoint.
@@ -755,7 +626,7 @@ async function main() {
         const data = await res.json().catch(() => null);
         if (res.status === 429) {
           await sleep(3000);
-          continue; // a shout was in flight; try again
+          continue; // a note was in flight; try again
         }
         if (!res.ok || !data || data.ok === false) {
           warn(`[watch] ${info.filename}: ${(data && data.error && data.error.message) || `HTTP ${res.status}`}`);
@@ -788,7 +659,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // Node system errors (missing module, port in use) carry paths and ports, never secrets.
     const system = err && typeof err.code === 'string' && err.code.startsWith('E');
     const detail = err instanceof ConfigError || system ? err.message : errorName(err);
-    process.stderr.write(`rowing-call could not start: ${detail}\n`);
+    process.stderr.write(`malayalam-notch could not start: ${detail}\n`);
     process.exit(1);
   });
 }

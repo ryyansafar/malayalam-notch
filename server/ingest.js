@@ -10,7 +10,8 @@ import { sniffAudio, measureDuration, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from 
 
 const USAGE = `usage: npm run ingest -- <audio file> [--lang=<${LANGS.join('|')}>] [--port=<n>]
 Sends one audio file (WhatsApp voice note, mp3, wav, m4a, aac, amr, webm) to the
-running rowing-call server through the voice-note path.`;
+running malayalam-notch server through the voice-note path — the same path as a
+file dropped on the notch.`;
 
 function parseArgs(argv) {
   const args = { lang: 'en-IN', port: Number(process.env.PORT || 3000), file: null };
@@ -81,7 +82,12 @@ export async function main(argv = process.argv.slice(2), { fetchImpl = globalThi
     fail(`shout failed: ${(data && data.error && data.error.message) || `HTTP ${res.status}`}`);
     return 1;
   }
-  say(`${filename}: heard "${data.translatedText || ''}"${data.meaning ? ` -> ${data.meaning}` : ' (not sure)'}${data.status === 'not_sure' ? ' [not sure]' : ''}`);
+  const parts = [`${filename}: "${data.translatedText || ''}"`];
+  if (data.sourceText) parts.push(`malayalam: ${data.sourceText}`);
+  if (data.romanText) parts.push(`romanised: ${data.romanText}`);
+  if (data.detectedLanguage) parts.push(`lang: ${data.detectedLanguage}`);
+  if (data.failedOps && data.failedOps.length) parts.push(`failed: ${data.failedOps.join(', ')}`);
+  say(parts.join('\n  '));
   return 0;
 }
 

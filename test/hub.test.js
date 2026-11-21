@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import * as H from '../server/hub.js';
 
-const MEANINGS = ['start', 'speed_up', 'slow_down', 'hold', 'ready', 'stop'];
-
 function fakeTimers() {
   const handles = [];
   return {
@@ -45,31 +43,22 @@ function fakeClient() {
   return { req, res };
 }
 
-const stroke = (t, rateSpm, count) => ({ type: 'stroke', t, rateSpm, count });
+const CFG = { maxBodyBytes: 8 * 1024 * 1024, maxTextChars: 500 };
 
-test('phrase table covers every meaning in every language', () => {
+test('the language and source lists are the product lists', () => {
   assert.deepEqual([...H.LANGS], ['en-IN', 'hi-IN', 'bn-IN', 'od-IN', 'ta-IN']);
-  for (const meaning of MEANINGS) {
-    for (const lang of H.LANGS) {
-      const phrase = H.phraseFor(meaning, lang);
-      assert.equal(typeof phrase, 'string', `${meaning}/${lang}`);
-      assert.ok(phrase.length > 0 && phrase.length < 2500);
-    }
-  }
-  assert.equal(H.phraseFor('speed_up', 'en-IN'), 'Row faster');
-  assert.equal(H.phraseFor('dance', 'en-IN'), null);
-  assert.equal(H.phraseFor('start', 'fr-FR'), null);
-  assert.equal(H.phraseFor('constructor', 'en-IN'), null);
-  assert.equal(H.phraseFor(null, 'en-IN'), null);
-  assert.equal(H.PHRASES_REVIEWED, false);
+  assert.deepEqual([...H.SHOUT_SOURCES], [
+    'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest', 'notch_drop',
+  ]);
+  assert.deepEqual([...H.SSE_EVENTS], ['state', 'received', 'note', 'phone']);
 });
 
-test('initial state is deeply frozen and honest about unverified content', () => {
+test('initial state is deeply frozen', () => {
   const s = H.initialState({ mode: 'live', startedT: 5 });
   assert.equal(s.mode, 'live');
-  assert.equal(s.callsVerified, false);
-  assert.equal(s.phrasesReviewed, false);
-  assert.ok(Object.isFrozen(s) && Object.isFrozen(s.phone) && Object.isFrozen(s.trials) && Object.isFrozen(s.tally));
+  assert.equal(s.startedT, 5);
+  assert.equal(s.lastNote, null);
+  assert.ok(Object.isFrozen(s) && Object.isFrozen(s.phone) && Object.isFrozen(s.langs));
   assert.throws(() => {
     s.phone.connected = true;
   }, TypeError);
@@ -82,68 +71,26 @@ test('reducers return new objects and leave the input untouched', () => {
   assert.equal(s0.phone.connected, false);
   assert.equal(s1.phone.connected, true);
   assert.equal(s1.phone.userAgent, null);
-
-  const s2 = H.withStrokes(s1, [stroke(100, 20, 1), stroke(200, 22, 2)]);
-  assert.equal(s1.strokes.length, 0);
-  assert.equal(s2.strokes.length, 2);
-  assert.deepEqual(s2.stroke, stroke(200, 22, 2));
-  assert.equal(H.withStrokes(s2, []), s2);
 });
 
-test('stroke and trial history are capped', () => {
-  const many = Array.from({ length: H.MAX_STROKES + 50 }, (_, i) => stroke(i, 20, i));
-  const s = H.withStrokes(H.initialState(), many);
-  assert.equal(s.strokes.length, H.MAX_STROKES);
-  assert.equal(s.strokes[0].t, 50);
-
-  let t = H.initialState();
-  for (let i = 0; i < H.MAX_TRIALS + 3; i += 1) t = H.withTrial(t, { callId: `c${i}`, outcome: 'obeyed' });
-  assert.equal(t.trials.length, H.MAX_TRIALS);
-  assert.equal(t.tally.total, H.MAX_TRIALS + 3);
+test('withNote stores the note without TTS audio; the payload keeps it', () => {
+  const note = { noteId: 'note-1', ttsAudioBase64: 'QUJD', translatedText: 'Hello' };
+  const s = H.withNote(H.initialState(), note);
+  assert.equal('ttsAudioBase64' in s.lastNote, false);
+  assert.equal(s.lastNote.translatedText, 'Hello');
+  assert.equal(note.ttsAudioBase64, 'QUJD');
 });
 
-test('withCall and withTrial never store audio; tally counts each outcome', () => {
-  const call = { callId: 'c1', meaning: 'stop', ttsAudioBase64: 'QUJD', mime: 'audio/wav' };
-  const s1 = H.withCall(H.initialState(), call);
-  assert.equal('ttsAudioBase64' in s1.lastCall, false);
-  assert.equal(s1.lastCall.meaning, 'stop');
-  assert.equal(call.ttsAudioBase64, 'QUJD');
-
-  let s = s1;
-  s = H.withTrial(s, { callId: 'c1', outcome: 'obeyed', ttsAudioBase64: 'QUJD' });
-  s = H.withTrial(s, { callId: 'c2', outcome: 'not_obeyed' });
-  s = H.withTrial(s, { callId: 'c3', outcome: 'not_sure' });
-  assert.deepEqual(s.tally, { obeyed: 1, notObeyed: 1, notSure: 1, total: 3 });
-  assert.equal('ttsAudioBase64' in s.trials[0], false);
-  assert.equal(s.lastResult.callId, 'c3');
-  assert.throws(() => H.withTrial(s, { outcome: 'maybe' }), TypeError);
-});
-
-test('baselineSpm uses the latest fresh stroke before the call, else 0', () => {
-  const s = H.withStrokes(H.initialState(), [stroke(1000, 18, 1), stroke(4000, 24, 2), stroke(9000, 30, 3)]);
-  assert.equal(H.baselineSpm(s, 5000, 8000), 24);
-  assert.equal(H.baselineSpm(s, 9000, 8000), 30);
-  assert.equal(H.baselineSpm(s, 500, 8000), 0);
-  assert.equal(H.baselineSpm(s, 30000, 8000), 0);
-  assert.equal(H.baselineSpm(H.withStrokes(H.initialState(), [stroke(10, null, 1)]), 20, 8000), 0);
-});
-
-test('strokesBetween is exclusive of the call time and inclusive of the window end', () => {
-  const s = H.withStrokes(H.initialState(), [stroke(100, 20, 1), stroke(200, 20, 2), stroke(300, 20, 3)]);
-  assert.deepEqual(H.strokesBetween(s, 100, 300).map((e) => e.t), [200, 300]);
-});
-
-test('publicState hides the full stroke log and adds serverT', () => {
-  const many = Array.from({ length: 300 }, (_, i) => stroke(i, 20, i));
-  const p = H.publicState(H.withStrokes(H.initialState(), many), 777);
-  assert.equal('strokes' in p, false);
-  assert.equal(p.recentStrokes.length, 120);
+test('publicState adds serverT', () => {
+  const p = H.publicState(H.initialState(), 777);
   assert.equal(p.serverT, 777);
 });
 
 test('formatSse produces a single-line data frame and rejects unknown events', () => {
   assert.equal(H.formatSse('phone', { a: 'x\ny' }), 'event: phone\ndata: {"a":"x\\ny"}\n\n');
+  assert.equal(H.formatSse('note', {}), 'event: note\ndata: {}\n\n');
   assert.throws(() => H.formatSse('evil\nevent', {}), TypeError);
+  assert.throws(() => H.formatSse('call', {}), TypeError); // old event names are gone
 });
 
 test('hub.update swaps in a new frozen state and rejects non-objects', () => {
@@ -175,17 +122,17 @@ test('broadcast reaches every client; closed clients are removed', () => {
   const b = fakeClient();
   hub.addClient(a.req, a.res);
   hub.addClient(b.req, b.res);
-  assert.equal(hub.broadcast('stroke', { count: 1 }), 2);
-  assert.equal(a.res.chunks.at(-1), 'event: stroke\ndata: {"count":1}\n\n');
+  assert.equal(hub.broadcast('note', { noteId: 'note-1' }), 2);
+  assert.equal(a.res.chunks.at(-1), 'event: note\ndata: {"noteId":"note-1"}\n\n');
   assert.equal(b.res.chunks.at(-1), a.res.chunks.at(-1));
 
   a.req.emit('close');
   assert.equal(hub.clientCount(), 1);
   assert.equal(a.res.ended, true);
   const sizeBefore = a.res.chunks.length;
-  hub.broadcast('stroke', { count: 2 });
+  hub.broadcast('note', { noteId: 'note-2' });
   assert.equal(a.res.chunks.length, sizeBefore);
-  assert.equal(b.res.chunks.at(-1), 'event: stroke\ndata: {"count":2}\n\n');
+  assert.equal(b.res.chunks.at(-1), 'event: note\ndata: {"noteId":"note-2"}\n\n');
 });
 
 test('a client whose write throws, errors or stalls is dropped without affecting others', () => {
@@ -216,19 +163,6 @@ test('keep-alive comments are sent on the injected interval', () => {
   assert.equal(res.chunks.at(-1), ': keep-alive\n\n');
 });
 
-test('extreme but finite phone timestamps are rejected so server times stay finite', () => {
-  const cfg = { maxStrokeBatch: 200 };
-  assert.throws(() => H.validateStrokes({ events: [{ t: 1e308, rateSpm: 20, count: 1 }] }, cfg), H.ValidationError);
-  assert.throws(() => H.validateStrokes({ events: [{ t: -1e308, rateSpm: 20, count: 1 }] }, cfg), H.ValidationError);
-  // a wild sentAt is ignored, so the anchored server time stays finite
-  const parsed = H.validateStrokes({ events: [{ t: 5, rateSpm: 20, count: 1 }], sentAt: 1e308 }, cfg);
-  const [event] = H.toServerEvents(parsed, 1_000_000);
-  assert.ok(Number.isFinite(event.t));
-  // ordinary magnitudes (uptime ms and epoch ms) still pass
-  const ok = H.validateStrokes({ events: [{ t: 1700000000000, rateSpm: 20, count: 1 }], sentAt: 1700000000001 }, cfg);
-  assert.equal(ok.sentAt, 1700000000001);
-});
-
 test('maxClients is enforced and close ends all clients and the timer', () => {
   const timers = fakeTimers();
   const hub = H.createHub({ timers, maxClients: 1 });
@@ -243,4 +177,64 @@ test('maxClients is enforced and close ends all clients and the timer', () => {
   assert.equal(timers.handles[0].cleared, true);
   const c = fakeClient();
   assert.equal(hub.addClient(c.req, c.res), false);
+});
+
+// ---- validateShout ----
+
+test('validateShout: text and audio paths, defaults and the ignored mode', () => {
+  const text = H.validateShout({ text: '  vannam  ', targetLang: 'hi-IN' }, CFG);
+  assert.equal(text.text, 'vannam');
+  assert.equal(text.targetLang, 'hi-IN');
+  assert.equal(text.source, 'text');
+  assert.equal(text.filename, null);
+
+  const audio = H.validateShout({ audioBase64: 'QUJD', mime: 'audio/ogg', targetLang: 'en-IN', source: 'notch_drop', filename: 'n.opus' }, CFG);
+  assert.equal(audio.source, 'notch_drop');
+  assert.deepEqual(audio.audio, Buffer.from('QUJD', 'base64'));
+  assert.equal(audio.filename, 'n.opus');
+
+  // a legacy `mode` field is accepted and ignored
+  const legacy = H.validateShout({ text: 'x', targetLang: 'en-IN', mode: 'translate' }, CFG);
+  assert.equal(legacy.text, 'x');
+
+  // audio without a source defaults to mic; data URLs carry their own mime
+  const dataUrl = H.validateShout({ audioBase64: `data:audio/mp4;base64,${'QUJD'}`, targetLang: 'en-IN' }, CFG);
+  assert.equal(dataUrl.source, 'mic');
+  assert.equal(dataUrl.mime, 'audio/mp4');
+});
+
+test('validateShout: precise errors for bad input', () => {
+  const cases = [
+    [{ text: 'go' }, 'invalid_target_lang'],
+    [{ text: 'go', targetLang: 'fr-FR' }, 'invalid_target_lang'],
+    [{ targetLang: 'en-IN' }, 'missing_input'],
+    [{ targetLang: 'en-IN', text: '', audioBase64: '' }, 'missing_input'],
+    [{ targetLang: 'en-IN', text: 'go', audioBase64: 'QUJD' }, 'ambiguous_input'],
+    [{ targetLang: 'en-IN', text: 7 }, 'invalid_text'],
+    [{ targetLang: 'en-IN', text: 'x'.repeat(501) }, 'invalid_text'],
+    [{ targetLang: 'en-IN', audioBase64: 'not base64!!' }, 'invalid_audio'],
+    [{ targetLang: 'en-IN', audioBase64: 12 }, 'invalid_audio'],
+    [{ targetLang: 'en-IN', audioBase64: 'QUJD', mime: 'text/html' }, 'invalid_mime'],
+    [{ targetLang: 'en-IN', text: 'x', source: 'carrier_pigeon' }, 'invalid_source'],
+    [{ targetLang: 'en-IN', audioBase64: 'QUJD', filename: '../escape.opus' }, 'invalid_filename'],
+    [null, 'invalid_body'],
+    [[1], 'invalid_body'],
+  ];
+  for (const [body, code] of cases) {
+    try {
+      H.validateShout(body, CFG);
+      assert.fail(`expected ${code} for ${JSON.stringify(body).slice(0, 60)}`);
+    } catch (err) {
+      assert.equal(err.name, 'ValidationError');
+      assert.equal(err.code, code, JSON.stringify(body).slice(0, 60));
+    }
+  }
+});
+
+test('validatePhone: user agent from body or header, capped at 300 chars', () => {
+  const req = { headers: { 'user-agent': 'HeaderUA/2' } };
+  assert.equal(H.validatePhone({}, req).userAgent, 'HeaderUA/2');
+  assert.equal(H.validatePhone({ userAgent: '  BodyUA  ' }, req).userAgent, '  BodyUA  ');
+  assert.equal(H.validatePhone({ userAgent: 'x'.repeat(400) }, req).userAgent.length, 300);
+  assert.throws(() => H.validatePhone({ userAgent: 42 }, req), H.ValidationError);
 });

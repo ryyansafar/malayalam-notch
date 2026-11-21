@@ -302,7 +302,7 @@ export function createSmallestClient({
     return run(SPEAK_OP, input, describe, () => ttsRequest(input, ttsModel), parseSpeakResponse);
   }
 
-  /** The coach's own call spoken back in Malayalam (default voice shibi). */
+  /** Speak text back in Malayalam (default voice shibi). */
   const speakMalayalam = ({ text, voiceId } = {}) => speak({ text, targetLang: 'ml-IN', voiceId });
 
   /** Pulse pre-recorded transcription. Returns { text, source, latencyMs }. See the Malayalam note at the top. */

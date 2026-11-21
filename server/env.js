@@ -98,7 +98,7 @@ export function lanAddresses(interfaces = os.networkInterfaces()) {
 export function bannerLines({ https = false, port, addresses = [], mode, requestedMode, apiKeyPresent }) {
   const scheme = https ? 'https' : 'http';
   const lines = [
-    'rowing-call: induction and classroom drill, not race equipment',
+    'malayalam-notch: Malayalam voice notes translated in the MacBook notch',
     `Sarvam mode: ${mode === 'live' ? 'LIVE' : 'REPLAY'} (SARVAM_MODE=${requestedMode}, SARVAM_API_KEY ${apiKeyPresent ? 'set' : 'not set'})`,
     `Laptop:    ${scheme}://localhost:${port}/dashboard`,
   ];
@@ -108,8 +108,7 @@ export function bannerLines({ https = false, port, addresses = [], mode, request
     lines.push('Warning: SARVAM_MODE=live but SARVAM_API_KEY is not set; live calls will fail');
   }
   if (!https) {
-    lines.push('Note: phone motion sensors usually need HTTPS (set CERT_FILE and KEY_FILE); without it the phone page falls back to its labelled simulation');
+    lines.push('Note: phone microphone in a browser usually needs HTTPS (set CERT_FILE and KEY_FILE); without it the phone page may not be able to record');
   }
-  lines.push('Call table is placeholder: real race calls not yet collected (UNVERIFIED)');
   return lines;
 }

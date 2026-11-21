@@ -3,7 +3,7 @@
 // shout path as a dropped voice note.
 //
 // Safety rules (in order):
-//   - the default folder ~/Downloads/rowing-call-inbox is created and watched;
+//   - the default folder ~/Downloads/malayalam-notch-inbox is created and watched;
 //     extra folders come only from WATCH_DIRS (comma-separated, ~ allowed);
 //   - files already present at startup are never ingested (no backfill);
 //   - non-audio files (magic-byte sniffed) and files over 5 MB are ignored;
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { sniffAudio, measureDuration, NOTE_MAX_BYTES } from '../shared/audio-sniff.js';
 
-export const DEFAULT_INBOX_DIR = path.join(os.homedir(), 'Downloads', 'rowing-call-inbox');
+export const DEFAULT_INBOX_DIR = path.join(os.homedir(), 'Downloads', 'malayalam-notch-inbox');
 const HEAD_BYTES = 64 * 1024;
 
 /** Expands a leading ~ or ~/ to the home directory. */
@@ -44,7 +44,7 @@ export function resolveWatchDirs({ env = process.env, home = os.homedir() } = {}
   const inboxOn = !['0', 'false', 'off', 'no'].includes(String(env.WATCH_INBOX ?? '').trim().toLowerCase());
   const warnings = [];
   const dirs = inboxOn
-    ? [{ dir: path.join(home, 'Downloads', 'rowing-call-inbox'), source: 'whatsapp_desktop', create: true }]
+    ? [{ dir: path.join(home, 'Downloads', 'malayalam-notch-inbox'), source: 'whatsapp_desktop', create: true }]
     : [];
   const seen = new Set(dirs.map((d) => d.dir));
   for (const raw of String(env.WATCH_DIRS || '').split(',')) {

@@ -48,14 +48,14 @@ function makeClient(dir, script, extra = {}) {
   return { client, logs, sleeps, calls: fetcher.calls };
 }
 
-const sttOk = () => jsonResponse(200, { request_id: 'r1', transcript: ' Row faster ', language_code: 'ml-IN' });
+const sttOk = () => jsonResponse(200, { request_id: 'r1', transcript: ' Move faster ', language_code: 'ml-IN' });
 const ttsOk = () => jsonResponse(200, { request_id: 'r2', audios: [WAV_B64] });
 const timeoutError = () => Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' });
 
 test('translate live: sends documented multipart fields and auth header', async () => withTmp(async (dir) => {
   const { client, calls } = makeClient(dir, [sttOk()]);
   const out = await client.translate({ audio: Buffer.from('abc'), mime: 'audio/webm;codecs=opus' });
-  assert.equal(out.text, 'Row faster');
+  assert.equal(out.text, 'Move faster');
   assert.equal(out.source, 'live');
   assert.equal(typeof out.latencyMs, 'number');
   assert.equal(calls.length, 1);
@@ -69,7 +69,7 @@ test('translate live: sends documented multipart fields and auth header', async 
   assert.equal(form.get('mode'), 'translate');
   assert.equal(form.get('language_code'), 'ml-IN');
   assert.equal(form.get('file').type, 'audio/webm');
-  assert.equal(form.get('file').name, 'shout.webm');
+  assert.equal(form.get('file').name, 'note.webm');
 }));
 
 test('translate live: returns languageProbability when the API gives one', async () => withTmp(async (dir) => {
@@ -139,7 +139,7 @@ test('replay hit: reads the cache and never calls fetch', async () => withTmp(as
   const replay = makeClient(dir, [new Error('fetch must not be called')], { mode: 'replay', apiKey: undefined });
   const t = await replay.client.translate({ audio, mime: 'audio/webm' });
   const s = await replay.client.speak({ text: 'Tez', targetLang: 'hi-IN' });
-  assert.deepEqual({ text: t.text, source: t.source }, { text: 'Row faster', source: 'replay' });
+  assert.deepEqual({ text: t.text, source: t.source }, { text: 'Move faster', source: 'replay' });
   assert.deepEqual({ audioBase64: s.audioBase64, mime: s.mime, source: s.source }, { audioBase64: WAV_B64, mime: 'audio/wav', source: 'replay' });
   assert.equal(replay.calls.length, 0);
 }));
@@ -282,25 +282,15 @@ test('no key and no audio appear in any logged string', async () => withTmp(asyn
 test('record-fixtures: parseArgs and planJobs', () => {
   const opts = parseArgs(['--text', 'call one', '--audio', 'a.webm', '--speak', 'hi-IN=Tez', '--speak', 'Faster', '--lang', 'en-IN,bn-IN']);
   const jobs = planJobs(opts);
-  assert.deepEqual(jobs.map((j) => j.op), ['translate', 'translate', 'speak', 'speak', 'speak']);
-  assert.deepEqual(jobs.slice(2).map((j) => j.args.targetLang), ['hi-IN', 'en-IN', 'bn-IN']);
+  assert.deepEqual(jobs.map((j) => j.op), ['translate', 'stt:transcribe', 'stt:translit', 'stt:translate', 'speak', 'speak', 'speak']);
+  assert.deepEqual(jobs.slice(4).map((j) => j.args.targetLang), ['hi-IN', 'en-IN', 'bn-IN']);
+  assert.deepEqual(jobs.slice(1, 4).map((j) => j.mode), ['transcribe', 'translit', 'translate']);
   assert.throws(() => parseArgs([]), UsageError);
   assert.throws(() => parseArgs(['--speak', 'Faster']), /needs --lang/);
   assert.throws(() => parseArgs(['--lang', 'fr-FR', '--text', 'x']), /Unsupported target language/);
   assert.throws(() => parseArgs(['--bogus']), /Unknown argument/);
+  assert.throws(() => parseArgs(['--bogus']), /Unknown argument/);
   assert.throws(() => parseArgs(['--text']), /needs a value/);
-});
-
-test('record-fixtures: --phrases plans the phrases the server speaks', async () => {
-  const hub = await import('../server/hub.js');
-  const all = planJobs(parseArgs(['--phrases']));
-  assert.equal(all.length, Object.keys(hub.PHRASES).length * hub.LANGS.length);
-  assert.ok(all.every((j) => j.op === 'speak' && j.args.text === hub.phraseFor(
-    Object.keys(hub.PHRASES).find((m) => hub.PHRASES[m][j.args.targetLang] === j.args.text), j.args.targetLang)));
-  const hindi = planJobs(parseArgs(['--phrases', '--lang', 'hi-IN']));
-  assert.equal(hindi.length, Object.keys(hub.PHRASES).length);
-  assert.ok(hindi.every((j) => j.args.targetLang === 'hi-IN'));
-  assert.equal(planJobs(parseArgs(['--text', 'x'])).length, 1);
 });
 
 test('record-fixtures: refuses to run without a key', async () => {
@@ -320,9 +310,9 @@ test('record-fixtures: records live, prints a table, never prints the key', asyn
   const argv = ['--text', 'typed', '--audio', audioFile, '--audio', path.join(dir, 'missing.wav'), '--speak', 'Tez', '--lang', 'hi-IN', '--cache-dir', cache];
   const code = await main({ argv, env: { SARVAM_API_KEY: FAKE_KEY }, out: (l) => lines.push(l), err: (l) => lines.push(l), fetchImpl: fetcher.impl });
   const printed = lines.join('\n');
-  assert.equal(code, 1); // one job (missing file) failed
-  assert.match(printed, /3 of 4 recorded live/);
+  assert.equal(code, 1); // the missing file's three stt jobs failed
+  assert.match(printed, /5 of 8 recorded live/); // 1 text + 3 stt + 3 failed stt + 1 speak
   assert.match(printed, /file not found/);
   assert.ok(!printed.includes(FAKE_KEY));
-  assert.equal((await readdir(cache)).length, 3);
+  assert.equal((await readdir(cache)).length, 5); // each stt mode caches separately
 }));

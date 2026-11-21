@@ -10,7 +10,7 @@ import { createWatcher, resolveWatchDirs, expandHome } from '../server/watcher.j
 
 let tmp;
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rowing-call-watch-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'malayalam-notch-watch-'));
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -170,15 +170,15 @@ test('a missing folder is logged and skipped; the default dir is created when as
 test('resolveWatchDirs: default inbox, WATCH_DIRS parsing, ~ expansion, absolute-only, warnings', () => {
   const home = path.join(tmp, 'home-user');
   const plain = resolveWatchDirs({ env: {}, home });
-  assert.deepEqual(plain.dirs, [{ dir: path.join(home, 'Downloads', 'rowing-call-inbox'), source: 'whatsapp_desktop', create: true }]);
+  assert.deepEqual(plain.dirs, [{ dir: path.join(home, 'Downloads', 'malayalam-notch-inbox'), source: 'whatsapp_desktop', create: true }]);
   assert.deepEqual(plain.warnings, []);
 
   const extra = resolveWatchDirs({
-    env: { WATCH_DIRS: ` ~/voice-notes , /abs/dir, relative/nope , , ${path.join(home, 'Downloads', 'rowing-call-inbox')} ` },
+    env: { WATCH_DIRS: ` ~/voice-notes , /abs/dir, relative/nope , , ${path.join(home, 'Downloads', 'malayalam-notch-inbox')} ` },
     home,
   });
   assert.deepEqual(extra.dirs.map((d) => d.dir), [
-    path.join(home, 'Downloads', 'rowing-call-inbox'),
+    path.join(home, 'Downloads', 'malayalam-notch-inbox'),
     path.join(home, 'voice-notes'),
     '/abs/dir',
   ]);

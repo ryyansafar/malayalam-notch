@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "f131bfbf899a2eab7f0f5189086f3318d43e25737971585125dea5956c4aad9f",
+  "input": {
+    "kind": "text",
+    "text": "ഇത് ഒരു പരീക്ഷണമാണ്",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "This is an experiment",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T18:45:18.462Z"
+}

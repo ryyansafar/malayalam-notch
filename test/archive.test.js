@@ -14,7 +14,7 @@ import { createServer } from '../server/index.js';
 let tmp;
 let fileSeq = 0;
 before(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rowing-call-archive-'));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'malayalam-notch-archive-'));
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -22,15 +22,17 @@ const nextFile = () => path.join(tmp, `archive-${fileSeq++}.jsonl`);
 
 // ---------- archive store ----------
 
-test('archive store: add assigns ids, lists newest first, searches, updates, round-trips the file', () => {
+test('archive store: add assigns ids, lists newest first, searches, round-trips the file', () => {
   const file = nextFile();
   const a = createArchive({ file, now: () => 1_700_000_000_000 });
 
-  const e1 = a.add({ text: 'row faster', meaning: 'speed_up', confidence: 'high', language: 'ml-IN', source: 'voice_note', filename: 'PTT-1.opus' });
-  const e2 = a.add({ text: 'hold water', meaning: 'hold', confidence: 'low', language: 'ml-IN', source: 'text' });
+  const e1 = a.add({ text: 'move faster', transcript: 'വേഗത്തില്‍ പോവുക', roman: 'vegam povuka', language: 'ml-IN', source: 'voice_note', filename: 'PTT-1.opus' });
+  const e2 = a.add({ text: 'hold water', language: 'ml-IN', source: 'text' });
   assert.equal(e1.id, 'e-1');
   assert.equal(e2.id, 'e-2');
-  assert.equal(e1.verdict, null);
+  assert.equal(e1.transcript, 'വേഗത്തില്‍ പോവുക');
+  assert.equal(e1.roman, 'vegam povuka');
+  assert.equal(e2.transcript, null);
   assert.equal(e2.filename, null);
   assert.equal(e1.time, 1_700_000_000_000);
 
@@ -39,17 +41,14 @@ test('archive store: add assigns ids, lists newest first, searches, updates, rou
   assert.deepEqual(a.list({ q: 'HOLD' }).map((e) => e.id), ['e-2']); // case-insensitive
   assert.deepEqual(a.list({ q: 'ml-in' }).map((e) => e.id), ['e-2', 'e-1']); // language searched
   assert.deepEqual(a.list({ q: 'PTT' }).map((e) => e.id), ['e-1']); // filename searched
+  assert.deepEqual(a.list({ q: 'povuka' }).map((e) => e.id), ['e-1']); // romanised text searched
   assert.deepEqual(a.list({ q: 'nothing' }), []);
-
-  a.update('e-1', { verdict: 'obeyed', reason: 'rate rose' });
-  assert.equal(a.list().find((e) => e.id === 'e-1').verdict, 'obeyed');
-  assert.equal(a.update('e-99', { verdict: 'obeyed' }), null);
 
   // persistence round trip: a fresh store on the same file sees everything
   const b = createArchive({ file });
   assert.equal(b.size, 2);
-  assert.deepEqual(b.list({ q: 'faster' })[0].verdict, 'obeyed');
-  const e3 = b.add({ text: 'stop', meaning: 'stop', source: 'mic' });
+  assert.equal(b.list({ q: 'faster' })[0].transcript, 'വേഗത്തില്‍ പോവുക');
+  const e3 = b.add({ text: 'stop', source: 'mic' });
   assert.equal(e3.id, 'e-3'); // ids keep counting after a reload
 
   const raw = fs.readFileSync(file, 'utf8').trim().split('\n');
@@ -60,17 +59,23 @@ test('archive store: add assigns ids, lists newest first, searches, updates, rou
 test('archive store: caps at maxEntries and drops the oldest; bad input is sanitized', () => {
   const file = nextFile();
   const a = createArchive({ file, maxEntries: 3 });
-  for (let i = 1; i <= 5; i += 1) a.add({ text: `call ${i}`, meaning: 'start' });
+  for (let i = 1; i <= 5; i += 1) a.add({ text: `note ${i}` });
   assert.equal(a.size, 3);
-  assert.deepEqual(a.list().map((e) => e.text), ['call 5', 'call 4', 'call 3']);
+  assert.deepEqual(a.list().map((e) => e.text), ['note 5', 'note 4', 'note 3']);
   assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 3);
 
-  const odd = a.add({ text: 'x', source: 'carrier_pigeon', verdict: 'rigged', filename: 7 });
+  const odd = a.add({ text: 'x', source: 'carrier_pigeon', surprise: 'rigged', filename: 7 });
   assert.equal(odd.source, 'text');
-  assert.equal(odd.verdict, null);
   assert.equal(odd.filename, null);
-  a.update(odd.id, { verdict: 'bogus' });
-  assert.equal(a.list()[0].verdict, null);
+  assert.equal('surprise' in odd, false); // unknown fields are never stored
+});
+
+test('archive store: countToday counts only entries since local midnight', () => {
+  const noon = new Date('2026-11-22T12:00:00').getTime();
+  const a = createArchive({ file: null });
+  a.add({ text: 'old', time: noon - 24 * 3600 * 1000 });
+  a.add({ text: 'new', time: noon });
+  assert.equal(a.countToday(noon), 1);
 });
 
 test('archive store: in-memory mode writes nothing and survives a corrupt line on load', () => {
@@ -134,19 +139,20 @@ async function start(overrides = {}) {
   const clock = { t: 1_000_000 };
   const timers = fakeTimers();
   const sarvam = {
-    translate: async () => ({ text: 'Row faster!', language: 'ml-IN', source: 'live', latencyMs: 10 }),
+    stt: async ({ mode }) => ({
+      text: mode === 'transcribe' ? 'വേഗത്തില്‍ പോവുക' : mode === 'translit' ? 'vegam povuka' : 'Move faster!',
+      language: 'ml-IN', source: 'live', latencyMs: 10,
+    }),
+    translate: async () => ({ text: 'Move faster!', language: 'ml-IN', source: 'live', latencyMs: 10 }),
     speak: async () => ({ audioBase64: 'QUJD', mime: 'audio/wav', source: 'live', latencyMs: 5 }),
     ...overrides.sarvam,
   };
-  const matchMeaning = overrides.matchMeaning || ((text) =>
-    (/faster/i.test(text) ? { meaning: 'speed_up', confidence: 'high', matchedKeyword: 'faster' } : { meaning: null, confidence: 'none' }));
-  const evaluate = overrides.evaluate || (() => ({ obeyed: true, strokesUntilObeyed: 2, deltaSpm: 6, reason: 'rate rose' }));
   const file = nextFile();
   const archive = overrides.archive === undefined ? createArchive({ file, now: () => clock.t }) : overrides.archive;
   const app = createServer({
-    sarvam, matchMeaning, evaluate, archive, now: () => clock.t, timers: timers.api,
+    sarvam, archive, now: () => clock.t, timers: timers.api,
     qr: async () => '<svg/>', log: () => {},
-    config: { rootDir: tmp, mode: 'replay', lanAddresses: [], windowMs: 8000, graceMs: 750, ...overrides.config },
+    config: { rootDir: tmp, mode: 'replay', lanAddresses: [], ...overrides.config },
   });
   const { port } = await app.listen(0, '127.0.0.1');
   return { app, port, clock, timers, archive, file, stop: () => app.close() };
@@ -175,7 +181,7 @@ function request(port, { method = 'GET', path: p = '/', headers = {}, body } = {
 }
 const post = (port, p, body, headers) => request(port, { method: 'POST', path: p, body, headers });
 
-test('a dropped voice note is archived with its name and language; the verdict lands after judging', async () => {
+test('a dropped voice note is archived with its name, language and the three texts', async () => {
   const s = await start();
   try {
     const audioBase64 = Buffer.from('fake-opus-bytes').toString('base64');
@@ -184,7 +190,6 @@ test('a dropped voice note is archived with its name and language; the verdict l
     });
     assert.equal(r.status, 200);
 
-    // the entry exists before the obedience window closes
     const before = (await request(s.port, { path: '/api/archive' })).json;
     assert.equal(before.ok, true);
     assert.equal(before.entries.length, 1);
@@ -192,21 +197,15 @@ test('a dropped voice note is archived with its name and language; the verdict l
     assert.equal(e.source, 'voice_note');
     assert.equal(e.filename, 'PTT-20261121.opus');
     assert.equal(e.language, 'ml-IN');
-    assert.equal(e.text, 'Row faster!');
-    assert.equal(e.meaning, 'speed_up');
-    assert.equal(e.confidence, 'high');
-    assert.equal(e.verdict, null);
+    assert.equal(e.text, 'Move faster!');
+    assert.equal(e.transcript, 'വേഗത്തില്‍ പോവുക');
+    assert.equal(e.roman, 'vegam povuka');
     assert.equal('audioBase64' in e, false);
     assert.equal('audio' in e, false);
 
-    s.timers.fireTimeouts(); // close the observation window -> judged
-    const judged = (await request(s.port, { path: '/api/archive' })).json.entries;
-    assert.equal(judged[0].verdict, 'obeyed');
-    assert.equal(judged[0].reason, 'rate rose');
-
-    // search hits on translation, meaning, filename and language; misses stay empty
+    // search hits on translation, transcript, filename and language
     assert.equal((await request(s.port, { path: '/api/archive?q=faster' })).json.entries.length, 1);
-    assert.equal((await request(s.port, { path: '/api/archive?q=speed_up' })).json.entries.length, 1);
+    assert.equal((await request(s.port, { path: '/api/archive?q=povuka' })).json.entries.length, 1);
     assert.equal((await request(s.port, { path: '/api/archive?q=ptt' })).json.entries.length, 1);
     assert.equal((await request(s.port, { path: '/api/archive?q=ml-in' })).json.entries.length, 1);
     assert.equal((await request(s.port, { path: '/api/archive?q=zzz' })).json.entries.length, 0);
@@ -217,39 +216,22 @@ test('a dropped voice note is archived with its name and language; the verdict l
     assert.equal(raw.includes('QUJD'), false);
     const reloaded = createArchive({ file: s.file });
     assert.equal(reloaded.list().length, 1);
-    assert.equal(reloaded.list()[0].verdict, 'obeyed');
+    assert.equal(reloaded.list()[0].roman, 'vegam povuka');
   } finally {
     await s.stop();
   }
 });
 
-test('sources: typed shouts archive as text, recordings as mic, and the verdict of a not_sure call is stored', async () => {
-  const s = await start({
-    sarvam: {
-      translate: async ({ text }) => ({
-        text: text === 'mystery' ? 'the weather is nice' : 'Row faster!',
-        language: 'ml-IN', source: 'live', latencyMs: 10,
-      }),
-    },
-  });
+test('sources: typed shouts archive as text, recordings as mic', async () => {
+  const s = await start();
   try {
-    await post(s.port, '/api/shout', { text: 'vegam', targetLang: 'en-IN' });
+    await post(s.port, '/api/shout', { text: 'povuka', targetLang: 'en-IN' });
     await post(s.port, '/api/shout', { audioBase64: 'QUJD', mime: 'audio/webm', targetLang: 'en-IN' }); // no source -> mic
-    const notSure = await post(s.port, '/api/shout', { text: 'mystery', targetLang: 'en-IN' });
-    assert.equal(notSure.json.status, 'not_sure');
-
-    s.timers.fireTimeouts();
     const entries = (await request(s.port, { path: '/api/archive' })).json.entries;
-    assert.equal(entries.length, 3); // newest first
-    assert.equal(entries[0].source, 'text');
-    assert.equal(entries[0].verdict, 'not_sure'); // stored at once, no window
-    assert.equal(entries[0].meaning, null);
-    assert.equal(entries[1].source, 'mic');
-    assert.equal(entries[1].verdict, 'obeyed');
-    assert.equal(entries[2].source, 'text');
-    // call-2 ended call-1's window on the same tick: superseded with zero
-    // observation time is judged "not sure", not fabricated as obeyed.
-    assert.equal(entries[2].verdict, 'not_sure');
+    assert.equal(entries.length, 2); // newest first
+    assert.equal(entries[0].source, 'mic');
+    assert.equal(entries[1].source, 'text');
+    assert.equal(entries[1].transcript, 'povuka'); // typed text is kept as the transcript
   } finally {
     await s.stop();
   }

@@ -2,26 +2,26 @@
 // Records rehearsal fixtures into the Sarvam cache so the demo can run offline in REPLAY mode.
 //
 //   SARVAM_API_KEY=... node sarvam/record-fixtures.js \
-//     --text "typed Malayalam call" --audio shouts/call1.webm \
+//     --text "typed Malayalam sentence" --audio notes/voice1.opus \
 //     --speak "hi-IN=phrase in Hindi" --speak "phrase for every --lang" --lang hi-IN,bn-IN
-//   SARVAM_API_KEY=... node sarvam/record-fixtures.js --phrases     (every phrase the server speaks)
+//
+// Each --audio records all three Saaras modes (transcribe, translit, translate)
+// so the notch card can replay offline.
 //
 // The key is read from the environment only and is never printed.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createSarvamClient, DEFAULT_CACHE_DIR, TTS_LANGS } from './client.js';
-import { LANGS as SERVER_LANGS, PHRASES as SERVER_PHRASES } from '../server/hub.js';
+import { createSarvamClient, DEFAULT_CACHE_DIR, TTS_LANGS, STT_MODES } from './client.js';
 
 export const USAGE = `Usage: SARVAM_API_KEY=... node sarvam/record-fixtures.js [options]
 
-  --text <text>         typed call to translate to English (repeatable)
-  --audio <file>        audio file of a shouted call, max 30 s, to translate (repeatable)
+  --text <text>         typed Malayalam text to translate to English (repeatable)
+  --audio <file>        audio file of a voice note, max 30 s; records all three
+                        Saaras modes (transcribe, translit, translate) (repeatable)
   --speak <text>        phrase to synthesise in every --lang (repeatable)
   --speak <lang>=<text> phrase to synthesise in one language, e.g. hi-IN=... (repeatable)
-  --phrases             synthesise every phrase the server speaks to the rower, in every
-                        dashboard language (or only the --lang ones), so REPLAY has audio
   --lang <codes>        comma-separated target languages for --speak (${TTS_LANGS.join(', ')})
   --source <code>       source language of --text and --audio (default ml-IN)
   --speaker <name>      Bulbul v3 speaker (default shubh)
@@ -50,7 +50,7 @@ function parseSpeak(value) {
 
 /** Pure argument parser. Throws UsageError on anything it does not understand. */
 export function parseArgs(argv) {
-  const initial = { help: false, phrases: false, texts: [], audios: [], speaks: [], langs: [], source: 'ml-IN', speaker: undefined, cacheDir: DEFAULT_CACHE_DIR };
+  const initial = { help: false, texts: [], audios: [], speaks: [], langs: [], source: 'ml-IN', speaker: undefined, cacheDir: DEFAULT_CACHE_DIR };
   const step = (acc, flag, value) => {
     switch (flag) {
       case '--text': return { ...acc, texts: [...acc.texts, value] };
@@ -66,10 +66,6 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === '--help' || flag === '-h') return { ...acc, help: true };
-    if (flag === '--phrases') {
-      acc = { ...acc, phrases: true };
-      continue;
-    }
     if (!VALUE_FLAGS.includes(flag)) throw new UsageError(`Unknown argument: ${flag}`);
     const value = argv[i + 1];
     if (value === undefined || value.trim() === '') throw new UsageError(`${flag} needs a value`);
@@ -81,25 +77,25 @@ export function parseArgs(argv) {
   if (acc.speaks.some((s) => s.lang === null) && acc.langs.length === 0) {
     throw new UsageError('--speak without a lang= prefix needs --lang');
   }
-  if (!acc.phrases && acc.texts.length + acc.audios.length + acc.speaks.length === 0) {
-    throw new UsageError('Nothing to record: give at least one --text, --audio, --speak or --phrases');
+  if (acc.texts.length + acc.audios.length + acc.speaks.length === 0) {
+    throw new UsageError('Nothing to record: give at least one --text, --audio or --speak');
   }
   return acc;
 }
 
+// The three Saaras modes the notch card asks for on one audio.
+const AUDIO_STT_MODES = Object.freeze(['transcribe', 'translit', 'translate']);
+
 /** Expands parsed options into a flat list of jobs. */
 export function planJobs(opts) {
   const texts = opts.texts.map((text) => ({ op: 'translate', label: text, args: { text, sourceLang: opts.source } }));
-  const audios = opts.audios.map((file) => ({ op: 'translate', label: file, file, args: { sourceLang: opts.source } }));
+  const audios = opts.audios.flatMap((file) => AUDIO_STT_MODES
+    .filter((mode) => STT_MODES.includes(mode))
+    .map((mode) => ({ op: `stt:${mode}`, label: file, file, mode, args: { sourceLang: opts.source, mode } })));
   const speaks = opts.speaks.flatMap((s) => (s.lang ? [s.lang] : opts.langs).map((lang) => ({
     op: 'speak', label: `${lang} ${s.text}`, args: { text: s.text, targetLang: lang, speaker: opts.speaker },
   })));
-  // The server's own phrase table, so the cache keys match what /api/shout will ask for.
-  const phraseLangs = opts.langs.length > 0 ? opts.langs : SERVER_LANGS;
-  const phrases = !opts.phrases ? [] : Object.values(SERVER_PHRASES).flatMap((row) => phraseLangs
-    .filter((lang) => Object.hasOwn(row, lang))
-    .map((lang) => ({ op: 'speak', label: `${lang} ${row[lang]}`, args: { text: row[lang], targetLang: lang, speaker: opts.speaker } })));
-  return [...texts, ...audios, ...speaks, ...phrases];
+  return [...texts, ...audios, ...speaks];
 }
 
 async function runJob(client, job) {
@@ -112,7 +108,9 @@ async function runJob(client, job) {
     const args = job.file
       ? { ...job.args, audio: await readFile(job.file), mime: MIME_BY_EXT[path.extname(job.file).toLowerCase()] }
       : job.args;
-    const r = await client.translate(args);
+    const r = job.file && typeof client.stt === 'function'
+      ? await client.stt(args)
+      : await client.translate(args);
     const note = r.passthrough ? ' (passthrough, not cached)' : '';
     return { ...job, ok: r.source === 'live' && !r.passthrough, source: r.source, latencyMs: r.latencyMs, result: `${r.text}${note}` };
   } catch (err) {

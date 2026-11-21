@@ -19,6 +19,10 @@ import { fileURLToPath } from 'node:url';
 export const BASE_URL = 'https://api.sarvam.ai';
 export const STT_MODEL = 'saaras:v4';
 export const STT_MODE = 'translate';
+// Saaras v4 modes measured live on 22 Nov 2026 (docs/SARVAM-FINDINGS.md):
+// transcribe = Malayalam script, translit = romanised, translate = English only,
+// codemix = English words kept in Latin script, verbatim = raw transcription.
+export const STT_MODES = Object.freeze(['transcribe', 'translit', 'translate', 'codemix', 'verbatim']);
 export const TTS_MODEL = 'bulbul:v3';
 export const TEXT_MODEL = 'mayura:v1';
 export const DEFAULT_SPEAKER = 'shubh';
@@ -123,22 +127,26 @@ function baseMime(mime) {
   return mime.split(';')[0].trim().toLowerCase();
 }
 
-function normaliseTranslateInput({ audio, mime, text, sourceLang = 'ml-IN' } = {}) {
-  const hasAudio = audio !== undefined && audio !== null;
-  if (hasAudio) {
-    if (!(audio instanceof Uint8Array)) throw new SarvamInputError('audio must be a Buffer');
-    if (audio.length === 0) throw new SarvamInputError('audio is empty');
-    if (audio.length > AUDIO_MAX_BYTES) {
-      throw new SarvamInputError(`audio is larger than ${AUDIO_MAX_BYTES} bytes (the REST limit is 30 seconds)`);
-    }
-    const lang = requireOneOf(sourceLang === 'auto' ? 'unknown' : sourceLang, 'sourceLang', STT_LANGS);
-    const canonical = { op: 'translate', kind: 'audio', audioSha256: sha256Hex(audio), sourceLang: lang, model: STT_MODEL, mode: STT_MODE };
-    return { kind: 'audio', audio, mime: baseMime(mime), sourceLang: lang, canonical };
+function normaliseSttInput({ audio, mime, sourceLang = 'ml-IN', mode = STT_MODE } = {}) {
+  if (!(audio instanceof Uint8Array)) throw new SarvamInputError('audio must be a Buffer');
+  if (audio.length === 0) throw new SarvamInputError('audio is empty');
+  if (audio.length > AUDIO_MAX_BYTES) {
+    throw new SarvamInputError(`audio is larger than ${AUDIO_MAX_BYTES} bytes (the REST limit is 30 seconds)`);
   }
+  const lang = requireOneOf(sourceLang === 'auto' ? 'unknown' : sourceLang, 'sourceLang', STT_LANGS);
+  const sttMode = requireOneOf(mode, 'mode', STT_MODES);
+  const canonical = { op: sttMode, kind: 'audio', audioSha256: sha256Hex(audio), sourceLang: lang, model: STT_MODEL, mode: sttMode };
+  return { audio, mime: baseMime(mime), sourceLang: lang, mode: sttMode, canonical };
+}
+
+function normaliseTranslateInput({ audio, mime, text, sourceLang = 'ml-IN', targetLang = 'en-IN' } = {}) {
+  const hasAudio = audio !== undefined && audio !== null;
+  if (hasAudio) return { kind: 'audio', ...normaliseSttInput({ audio, mime, sourceLang, mode: STT_MODE }) };
   const clean = requireText(text, 'text (or audio)', TEXT_MAX_CHARS);
   const lang = requireOneOf(sourceLang === 'unknown' ? 'auto' : sourceLang, 'sourceLang', TEXT_SOURCE_LANGS);
-  const canonical = { op: 'translate', kind: 'text', text: clean, sourceLang: lang, model: TEXT_MODEL };
-  return { kind: 'text', text: clean, sourceLang: lang, canonical };
+  const target = requireOneOf(targetLang, 'targetLang', TTS_LANGS);
+  const canonical = { op: 'translate', kind: 'text', text: clean, sourceLang: lang, targetLang: target, model: TEXT_MODEL };
+  return { kind: 'text', text: clean, sourceLang: lang, targetLang: target, canonical };
 }
 
 function normaliseSpeakInput({ text, targetLang, speaker } = {}) {
@@ -152,15 +160,15 @@ function normaliseSpeakInput({ text, targetLang, speaker } = {}) {
 function sttRequest(input) {
   const form = new FormData();
   const ext = EXT_BY_MIME[input.mime] ?? 'bin';
-  form.append('file', new Blob([input.audio], { type: input.mime }), `shout.${ext}`);
+  form.append('file', new Blob([input.audio], { type: input.mime }), `note.${ext}`);
   form.append('model', STT_MODEL);
-  form.append('mode', STT_MODE);
+  form.append('mode', input.mode);
   form.append('language_code', input.sourceLang);
   return { path: '/speech-to-text', body: form, json: false };
 }
 
 function textRequest(input) {
-  const body = { input: input.text, source_language_code: input.sourceLang, target_language_code: 'en-IN', model: TEXT_MODEL };
+  const body = { input: input.text, source_language_code: input.sourceLang, target_language_code: input.targetLang, model: TEXT_MODEL };
   return { path: '/translate', body: JSON.stringify(body), json: true };
 }
 
@@ -321,20 +329,35 @@ export function createSarvamClient({
   }
 
   /**
-   * Shout to English. Audio goes to Saaras v4 in translate mode. Typed text goes to
-   * Mayura (text translation to en-IN); typed text already marked en-IN is returned
-   * unchanged with `passthrough: true` and no API call.
+   * Speech-to-text with Saaras v4. `mode` picks the output script
+   * (transcribe = Malayalam, translit = romanised, translate = English).
+   * Returns { text, language?, languageProbability?, source, latencyMs }.
+   */
+  async function stt({ audio, mime, sourceLang, mode } = {}) {
+    const input = normaliseSttInput({ audio, mime, sourceLang, mode });
+    const describe = {
+      kind: 'audio', audioSha256: input.canonical.audioSha256, audioBytes: input.audio.length,
+      mime: input.mime, sourceLang: input.sourceLang, mode: input.mode,
+    };
+    return run(input.mode, input, describe, () => sttRequest(input), (data) => parseTranslateResponse(data, 'audio'));
+  }
+
+  /**
+   * To English (or another target language for typed text).
+   * Audio goes to Saaras v4 in translate mode — English only, no Malayalam back.
+   * Typed text goes to Mayura; typed text already marked en-IN with an en-IN
+   * target is returned unchanged with `passthrough: true` and no API call.
    */
   async function translate(args) {
     const input = normaliseTranslateInput(args);
-    if (input.kind === 'text' && input.sourceLang === 'en-IN') {
+    if (input.kind === 'text' && input.sourceLang === 'en-IN' && input.targetLang === 'en-IN') {
       return { text: input.text, passthrough: true, source: effectiveMode === 'replay' ? 'replay' : 'live', latencyMs: 0 };
     }
     const describe = input.kind === 'audio'
       ? { kind: 'audio', audioSha256: input.canonical.audioSha256, audioBytes: input.audio.length, mime: input.mime, sourceLang: input.sourceLang }
-      : { kind: 'text', text: input.text, sourceLang: input.sourceLang };
+      : { kind: 'text', text: input.text, sourceLang: input.sourceLang, targetLang: input.targetLang };
     const build = () => (input.kind === 'audio' ? sttRequest(input) : textRequest(input));
-    return run('translate', input, describe, build, (data) => parseTranslateResponse(data, input.kind));
+    return run(input.kind === 'audio' ? input.mode : 'translate', input, describe, build, (data) => parseTranslateResponse(data, input.kind));
   }
 
   /** Text to speech with Bulbul v3. Returns base64 WAV (the documented default codec). */
@@ -344,5 +367,5 @@ export function createSarvamClient({
     return run('speak', input, describe, () => ttsRequest(input), parseSpeakResponse);
   }
 
-  return Object.freeze({ translate, speak, mode: effectiveMode, cacheDir });
+  return Object.freeze({ translate, stt, speak, mode: effectiveMode, cacheDir });
 }

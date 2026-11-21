@@ -14,7 +14,7 @@ import { cutOgg, SPEECH_MAX_SECONDS, NOTE_MAX_BYTES } from '../shared/audio-snif
 
 let rootDir;
 before(() => {
-  rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rowing-call-wa-'));
+  rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'malayalam-notch-wa-'));
   fs.mkdirSync(path.join(rootDir, 'public'), { recursive: true });
 });
 after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
@@ -90,23 +90,26 @@ function fakeTimers() {
 async function start(overrides = {}) {
   const clock = { t: 1_000_000 };
   const timers = fakeTimers();
-  const calls = { translate: [] };
+  const calls = { stt: [], translate: [] };
   const sarvam = {
+    stt: async (args) => {
+      calls.stt.push(args);
+      const text = args.mode === 'transcribe' ? 'വേഗത്തില്‍ പോവുക' : args.mode === 'translit' ? 'vegam povuka' : ' Move faster! ';
+      return { text, language: 'ml-IN', source: 'live', latencyMs: 120 };
+    },
     translate: async (args) => {
       calls.translate.push(args);
-      return { text: ' Row faster! ', language: 'ml-IN', source: 'live', latencyMs: 120 };
+      return { text: ' Move faster! ', language: 'ml-IN', source: 'live', latencyMs: 120 };
     },
     speak: async () => ({ audioBase64: 'QUJD', mime: 'audio/wav', source: 'live', latencyMs: 80 }),
     ...overrides.sarvam,
   };
   const app = createServer({
     sarvam,
-    matchMeaning: (text) => (/faster/i.test(text) ? { meaning: 'speed_up', confidence: 'high', matchedKeyword: 'faster' } : { meaning: null, confidence: 'none' }),
-    evaluate: () => ({ obeyed: true, strokesUntilObeyed: 2, deltaSpm: 6, reason: 'rate rose' }),
     now: () => clock.t,
     timers: timers.api,
     qr: async () => '<svg/>',
-    config: { rootDir, mode: 'replay', lanAddresses: [], windowMs: 8000, graceMs: 750, watchDirs: ['/tmp/inbox-a', '/tmp/inbox-b'], ...overrides.config },
+    config: { rootDir, mode: 'replay', lanAddresses: [], watchDirs: ['/tmp/inbox-a', '/tmp/inbox-b'], ...overrides.config },
   });
   const { port } = await app.listen(0, '127.0.0.1');
   return { app, port, clock, timers, calls, archive: app.archive, stop: () => app.close() };
@@ -139,7 +142,7 @@ test('the WhatsApp-era sources are accepted and archived; a bogus source is reje
       const res = await request(t.port, {
         method: 'POST', path: '/api/shout',
         headers: { 'Content-Type': 'application/json' },
-        body: { text: 'row faster', targetLang: 'en-IN', source },
+        body: { text: 'move faster', targetLang: 'en-IN', source },
       });
       assert.equal(res.status, 200, `${source}: ${res.text}`);
       assert.equal(res.json.ok, true);
@@ -147,7 +150,7 @@ test('the WhatsApp-era sources are accepted and archived; a bogus source is reje
     const bad = await request(t.port, {
       method: 'POST', path: '/api/shout',
       headers: { 'Content-Type': 'application/json' },
-      body: { text: 'row faster', targetLang: 'en-IN', source: 'carrier_pigeon' },
+      body: { text: 'move faster', targetLang: 'en-IN', source: 'carrier_pigeon' },
     });
     assert.equal(bad.status, 400);
     assert.equal(bad.json.error.code, 'invalid_source');
@@ -173,9 +176,10 @@ test('the archive stores the Sarvam language code — a language id, never a dia
     assert.equal(entry.language, 'ml-IN'); // exactly the code Sarvam reported
     assert.equal(entry.filename, 'PTT-20261121-WA0001.opus');
     assert.equal(entry.source, 'whatsapp_desktop');
-    // the watcher path passed the fake translator real bytes
-    assert.deepEqual(t.calls.translate[0].audio, whatsappNote(48000));
-    assert.equal(t.calls.translate[0].mime, 'audio/ogg;codecs=opus');
+    // the shout path passed the fake stt real bytes, once per mode
+    assert.equal(t.calls.stt.length, 3);
+    assert.deepEqual(t.calls.stt[0].audio, whatsappNote(48000));
+    assert.equal(t.calls.stt[0].mime, 'audio/ogg;codecs=opus');
   } finally {
     await t.stop();
   }
@@ -192,10 +196,11 @@ test('POST /share: a WhatsApp voice note is heard and the answer is a small page
     assert.equal(res.status, 200);
     assert.match(res.headers['content-type'], /text\/html/);
     assert.match(res.text, /Voice note heard/);
-    assert.match(res.text, /speed up/); // meaning spelled out for a human, not JSON
-    assert.equal(t.calls.translate.length, 1);
-    assert.deepEqual(t.calls.translate[0].audio, note);
-    assert.equal(t.calls.translate[0].mime, 'audio/ogg;codecs=opus'); // sniffed mime, not the part header
+    assert.match(res.text, /Move faster!/); // the translation spelled out for a human
+    assert.match(res.text, /Malayalam/);
+    assert.equal(t.calls.stt.length, 3); // transcribe + translit + translate in parallel
+    assert.deepEqual(t.calls.stt[0].audio, note);
+    assert.equal(t.calls.stt[0].mime, 'audio/ogg;codecs=opus'); // sniffed mime, not the part header
     assert.equal(t.archive.list()[0].source, 'whatsapp_share');
   } finally {
     await t.stop();
@@ -219,7 +224,7 @@ test('POST /share: wrong content type, no file part and non-audio bytes get plai
     assert.equal(bad.status, 200);
     assert.match(bad.text, /Not an audio file/);
     assert.match(bad.text, /letter\.txt/);
-    assert.equal(t.calls.translate.length, 0); // never reached the translator
+    assert.equal(t.calls.stt.length, 0); // never reached the translator
   } finally {
     await t.stop();
   }
@@ -232,7 +237,7 @@ test('POST /share: over 5 MB and unrecognised-but-huge files are refused before 
     const res = await request(t.port, { method: 'POST', path: '/share', headers: { 'Content-Type': big.type }, body: big.body });
     assert.equal(res.status, 200);
     assert.match(res.text, /Note too large/);
-    assert.equal(t.calls.translate.length, 0);
+    assert.equal(t.calls.stt.length, 0);
   } finally {
     await t.stop();
   }
@@ -248,7 +253,7 @@ test('POST /share: a long Ogg note offers a lossless "first 30 s" cut, and /shar
     assert.match(res.text, /Note too long/);
     assert.match(res.text, /Use the first 30 seconds/);
     const token = /name="token" value="([a-f0-9]{20})"/.exec(res.text)[1];
-    assert.equal(t.calls.translate.length, 0); // nothing sent yet
+    assert.equal(t.calls.stt.length, 0); // nothing sent yet
 
     const cut = await request(t.port, {
       method: 'POST', path: '/share/cut',
@@ -258,8 +263,8 @@ test('POST /share: a long Ogg note offers a lossless "first 30 s" cut, and /shar
     assert.equal(cut.status, 200);
     assert.match(cut.text, /Voice note heard/);
     assert.match(cut.text, /first 30 s/);
-    assert.equal(t.calls.translate.length, 1);
-    assert.deepEqual(t.calls.translate[0].audio, cutOgg(note, SPEECH_MAX_SECONDS));
+    assert.equal(t.calls.stt.length, 3);
+    assert.deepEqual(t.calls.stt[0].audio, cutOgg(note, SPEECH_MAX_SECONDS));
 
     // the token is spent: a second use reports the offer is gone
     const again = await request(t.port, {
@@ -268,7 +273,7 @@ test('POST /share: a long Ogg note offers a lossless "first 30 s" cut, and /shar
       body: `token=${token}`,
     });
     assert.match(again.text, /Offer expired/);
-    assert.equal(t.calls.translate.length, 1);
+    assert.equal(t.calls.stt.length, 3);
   } finally {
     await t.stop();
   }
@@ -283,7 +288,7 @@ test('POST /share: a long WAV cannot be cut — honest page, no offer; stale tok
     assert.match(res.text, /Note too long/);
     assert.match(res.text, /Send a shorter note/);
     assert.doesNotMatch(res.text, /Use the first 30 seconds/);
-    assert.equal(t.calls.translate.length, 0);
+    assert.equal(t.calls.stt.length, 0);
 
     const dead = await request(t.port, {
       method: 'POST', path: '/share/cut',
@@ -304,7 +309,7 @@ test('archiveCsv/archiveJson: commas, quotes and line breaks are escaped; no aud
   archive.add({ source: 'text', text: 'plain' }); // older entry: list() is newest first
   archive.add({
     time: 1_700_000_000_000, source: 'whatsapp_desktop', filename: 'note,"x".opus',
-    language: 'ml-IN', text: 'row "faster",\nnow', meaning: 'speed_up', confidence: 'high', verdict: 'obeyed', reason: 'ok',
+    language: 'ml-IN', text: 'move "faster",\nnow', transcript: 'വേഗം', roman: 'vegam',
   });
   const csv = archiveCsv(archive.list());
   const [head] = csv.split('\n');
@@ -312,12 +317,13 @@ test('archiveCsv/archiveJson: commas, quotes and line breaks are escaped; no aud
   // every problematic cell is quoted; inner quotes are doubled (a quoted cell
   // may itself contain a newline — match the text, not the physical lines)
   assert.match(csv, /"note,""x""\.opus"/);
-  assert.match(csv, /"row ""faster"",\nnow"/);
-  assert.match(csv, /,text,,,plain,,,,$/m); // the plain entry has no quoted cells
+  assert.match(csv, /"move ""faster"",\nnow"/);
+  assert.match(csv, /,text,,,,,plain$/m); // the plain entry has no quoted cells
   const exported = JSON.parse(archiveJson(archive.list()));
   assert.equal(exported.entries.length, 2);
   assert.ok(typeof exported.exportedAt === 'string');
-  assert.equal(exported.entries[0].text, 'row "faster",\nnow');
+  assert.equal(exported.entries[0].text, 'move "faster",\nnow');
+  assert.equal(exported.entries[0].roman, 'vegam');
   for (const e of exported.entries) assert.ok(!('audio' in e) && !('audioBase64' in e));
 });
 
@@ -327,19 +333,19 @@ test('GET /api/archive.csv and /api/archive.json download the archive as files',
     await request(t.port, {
       method: 'POST', path: '/api/shout',
       headers: { 'Content-Type': 'application/json' },
-      body: { text: 'row faster', targetLang: 'en-IN', source: 'watched_folder', filename: 'w.opus' },
+      body: { text: 'move faster', targetLang: 'en-IN', source: 'watched_folder', filename: 'w.opus' },
     });
     const csv = await request(t.port, { path: '/api/archive.csv' });
     assert.equal(csv.status, 200);
     assert.match(csv.headers['content-type'], /text\/csv/);
-    assert.match(csv.headers['content-disposition'], /attachment.*rowing-call-archive\.csv/);
+    assert.match(csv.headers['content-disposition'], /attachment.*malayalam-notes\.csv/);
     const lines = csv.text.split('\n').filter(Boolean);
     assert.equal(lines[0], CSV_COLUMNS.join(','));
     assert.match(lines[1], /watched_folder,w\.opus,ml-IN/);
 
     const json = await request(t.port, { path: '/api/archive.json' });
     assert.equal(json.status, 200);
-    assert.match(json.headers['content-disposition'], /rowing-call-archive\.json/);
+    assert.match(json.headers['content-disposition'], /malayalam-notes\.json/);
     const data = JSON.parse(json.text);
     assert.equal(data.entries[0].source, 'watched_folder');
     assert.equal(data.entries[0].filename, 'w.opus');
@@ -353,7 +359,7 @@ test('GET /api/providers lists the watched folders; the SOURCES list stays in sy
   try {
     const res = await request(t.port, { path: '/api/providers' });
     assert.deepEqual(res.json.watchDirs, ['/tmp/inbox-a', '/tmp/inbox-b']);
-    assert.deepEqual(SOURCES, ['voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest']);
+    assert.deepEqual(SOURCES, ['voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest', 'notch_drop']);
   } finally {
     await t.stop();
   }
@@ -372,7 +378,7 @@ test('ingest CLI: a WhatsApp voice note is posted to the running shout path', as
   const code = await ingestMain([file, '--lang=hi-IN', '--port=4321'], {
     fetchImpl: async (url, req) => {
       posted = { url, req };
-      return { ok: true, status: 200, json: async () => ({ ok: true, translatedText: 'Row faster!', meaning: 'speed_up' }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, translatedText: 'Move faster!', sourceText: 'വേഗം', romanText: 'vegam', detectedLanguage: 'ml-IN' }) };
     },
     say: out.fn, fail: err.fn,
   });
@@ -384,7 +390,10 @@ test('ingest CLI: a WhatsApp voice note is posted to the running shout path', as
   assert.equal(payload.filename, 'PTT-20261121-WA0002.opus');
   assert.equal(payload.mime, 'audio/ogg;codecs=opus');
   assert.deepEqual(Buffer.from(payload.audioBase64, 'base64'), note);
-  assert.match(out.lines[0], /Row faster!.*speed_up/);
+  assert.match(out.lines[0], /Move faster!/);
+  assert.match(out.lines.join('\n'), /malayalam: വേഗം/);
+  assert.match(out.lines.join('\n'), /romanised: vegam/);
+  assert.match(out.lines.join('\n'), /lang: ml-IN/);
   assert.deepEqual(err.lines, []);
 });
 

@@ -3,136 +3,137 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nextPhase, verdictOf, verdictReason, countdown, liveSpm, callOriginBadge,
-  watchLine, shouldCollapse, SHOUT_SOURCE, malayalamOf, COLLAPSE_AFTER_MS,
+  nextPhase, phaseLine, cardFields, noteOriginBadge, pushShelf, chipLine,
+  elapsedSeconds, shouldCollapse, SHOUT_SOURCE, receivedLine, acceptsAudioName,
+  COLLAPSE_AFTER_MS, SHELF_MAX,
 } from '../public/notch-core.js';
 
-const call = (over = {}) => ({
-  callId: 'call-1', t: 10_000, meaning: 'speed_up', translatedText: 'Row faster',
-  spokenText: 'तेज़ चलाओ', targetLang: 'hi-IN', windowMs: 8000, status: 'ok',
-  source: 'live', ...over,
+const note = (over = {}) => ({
+  noteId: 'note-1', t: 10_000, input: 'audio', origin: 'notch_drop',
+  sourceText: 'വേഗത്തില്‍ ചല്ല്', romanText: 'vegam challu', translatedText: 'Row faster',
+  detectedLanguage: 'ml-IN', spokenText: 'Row faster', spokenLang: 'en-IN',
+  targetLang: 'en-IN', ttsAvailable: true, status: 'ok', failedOps: [], ...over,
 });
 
 // ---- phase machine ----
-test('nextPhase: a recognised call opens the call phase', () => {
-  assert.equal(nextPhase('idle', 'call', call()), 'call');
-  assert.equal(nextPhase('verdict', 'call', call()), 'call');
+test('nextPhase: a received note opens the island; the note lands on result', () => {
+  assert.equal(nextPhase('idle', 'received', { noteId: 'n1' }), 'received');
+  assert.equal(nextPhase('received', 'note', note()), 'result');
+  assert.equal(nextPhase('idle', 'note', note()), 'result');
 });
 
-test('nextPhase: a not-sure or unrecognised call does not open the call phase', () => {
-  assert.equal(nextPhase('idle', 'call', call({ status: 'not_sure' })), 'idle');
-  assert.equal(nextPhase('idle', 'call', call({ meaning: null })), 'idle');
-  assert.equal(nextPhase('idle', 'call', null), 'idle');
+test('nextPhase: an error shows the error phase; empty payloads do nothing', () => {
+  assert.equal(nextPhase('translating', 'note_error', { message: 'x' }), 'error');
+  assert.equal(nextPhase('idle', 'note', null), 'idle');
+  assert.equal(nextPhase('idle', 'received', null), 'idle');
 });
 
-test('nextPhase: a result always shows the verdict phase', () => {
-  assert.equal(nextPhase('call', 'result', { outcome: 'obeyed' }), 'verdict');
-  assert.equal(nextPhase('idle', 'result', { outcome: 'not_sure', status: 'not_sure' }), 'verdict');
-  assert.equal(nextPhase('call', 'result', null), 'call');
+test('nextPhase: recording and reset move the island; unknown phases recover', () => {
+  assert.equal(nextPhase('idle', 'recording', {}), 'recording');
+  assert.equal(nextPhase('recording', 'recording', false), 'idle');
+  assert.equal(nextPhase('result', 'reset'), 'idle');
+  assert.equal(nextPhase('bogus', 'received', { noteId: 'x' }), 'received');
 });
 
-test('nextPhase: strokes and phone events never change the phase', () => {
-  assert.equal(nextPhase('call', 'stroke', { t: 1 }), 'call');
-  assert.equal(nextPhase('idle', 'phone', { connected: true }), 'idle');
-  assert.equal(nextPhase('verdict', 'state', {}), 'verdict');
+// ---- the one plain line per state ----
+test('phaseLine: every state names what is happening', () => {
+  assert.equal(phaseLine('idle', { notesToday: 0 }), 'Drop a WhatsApp voice note');
+  assert.equal(phaseLine('idle', { notesToday: 3 }), '3 notes translated today');
+  assert.equal(phaseLine('idle', { notesToday: 1 }), '1 note translated today');
+  assert.equal(phaseLine('received', { filename: 'PTT-1.opus' }), 'Received PTT-1.opus');
+  assert.equal(phaseLine('translating'), 'Translating');
+  assert.equal(phaseLine('result'), 'Done');
+  assert.match(phaseLine('error', {}), /something went wrong/i);
 });
 
-test('nextPhase: an unknown current phase recovers to idle', () => {
-  assert.equal(nextPhase('bogus', 'stroke', {}), 'idle');
+// ---- card fields: only what the API returned ----
+test('cardFields: the three lines plus the detected language', () => {
+  const f = cardFields(note());
+  assert.equal(f.malayalam, 'വേഗത്തില്‍ ചല്ല്');
+  assert.equal(f.roman, 'vegam challu');
+  assert.equal(f.english, 'Row faster');
+  assert.equal(f.detectedLanguage, 'ml-IN');
+  assert.equal(f.malayalamFailed, false);
 });
 
-// ---- verdicts ----
-test('verdictOf maps outcomes to word and colour class', () => {
-  assert.deepEqual(verdictOf({ outcome: 'obeyed' }), { word: 'OBEYED', cls: 'ok' });
-  assert.deepEqual(verdictOf({ outcome: 'not_obeyed' }), { word: 'NOT OBEYED', cls: 'bad' });
-  assert.deepEqual(verdictOf({ outcome: 'not_sure' }), { word: 'NOT SURE', cls: 'warn' });
-  assert.deepEqual(verdictOf({ outcome: 'garbage' }), { word: 'NOT SURE', cls: 'warn' });
-  assert.deepEqual(verdictOf(null), { word: 'NOT SURE', cls: 'warn' });
-});
-
-test('verdictReason joins reason, delta and stroke count', () => {
-  const r = { reason: 'rate did not rise', deltaSpm: -2.4, strokesObserved: 5, superseded: false };
-  assert.equal(verdictReason(r), 'rate did not rise · Δ -2 spm · 5 strokes observed');
-  assert.equal(verdictReason({ reason: '', superseded: true }), 'window cut short by a newer call');
-  assert.equal(verdictReason(null), '');
-});
-
-// ---- countdown maths ----
-test('countdown returns the remaining window fraction clamped to [0,1]', () => {
-  assert.equal(countdown(10_000, 10_000, 8000), 1);       // at the call: full window left
-  assert.equal(countdown(14_000, 10_000, 8000), 0.5);     // halfway
-  assert.equal(countdown(18_000, 10_000, 8000), 0);       // window closed
-  assert.equal(countdown(20_000, 10_000, 8000), 0);       // past the window stays 0
-});
-
-test('countdown: bad inputs give 0', () => {
-  assert.equal(countdown(NaN, 10_000, 8000), 0);
-  assert.equal(countdown(10_000, undefined, 8000), 0);
-  assert.equal(countdown(10_000, 10_000, 0), 0);
-  assert.equal(countdown(10_000, 10_000, -5), 0);
-});
-
-// ---- live stroke rate ----
-test('liveSpm: newest fresh stroke wins, stale strokes read 0', () => {
-  const strokes = [{ t: 90_000, rateSpm: 24.6 }, { t: 95_000, rateSpm: 30.2 }];
-  assert.equal(liveSpm(strokes, 96_000), 30);
-  assert.equal(liveSpm(strokes, 100_000), 0);   // older than 4 s staleness
-  assert.equal(liveSpm([], 96_000), 0);
-  assert.equal(liveSpm(null, 96_000), 0);
-  assert.equal(liveSpm([{ t: 95_000 }], 96_000), 0); // missing rate
+test('cardFields: a failed mode is flagged, never fabricated', () => {
+  const f = cardFields(note({ romanText: null, failedOps: ['translit'] }));
+  assert.equal(f.roman, null);
+  assert.equal(f.romanFailed, true);
+  assert.equal(f.english, 'Row faster');
+  assert.equal(cardFields(null), null);
 });
 
 // ---- origin badge ----
-test('callOriginBadge: data-lane source values never become a badge', () => {
-  assert.equal(callOriginBadge(call({ source: 'live' })), null);
-  assert.equal(callOriginBadge(call({ source: 'replay' })), null);
+test('noteOriginBadge: a real origin is humanised; lane values never become one', () => {
+  assert.equal(noteOriginBadge(note({ origin: 'notch_drop' })), 'notch drop');
+  assert.equal(noteOriginBadge(note({ origin: 'whatsapp_desktop' })), 'whatsapp desktop');
+  assert.equal(noteOriginBadge({ source: 'live' }), null);
+  assert.equal(noteOriginBadge(null), null);
+  assert.equal(noteOriginBadge({}), null);
 });
 
-test('callOriginBadge: an origin field is shown, humanised', () => {
-  assert.equal(callOriginBadge(call({ source: 'voice_note' })), 'voice note');
-  assert.equal(callOriginBadge(call({ origin: 'whatsapp_desktop' })), 'whatsapp desktop');
-  assert.equal(callOriginBadge(call({ origin: { source: 'phone_mic' } })), 'phone mic');
-  assert.equal(callOriginBadge(null), null);
-  assert.equal(callOriginBadge({}), null);
+// ---- the shelf ----
+test('pushShelf: newest first, capped at five, only display fields kept', () => {
+  let shelf = [];
+  for (let i = 1; i <= 7; i += 1) {
+    shelf = pushShelf(shelf, note({ noteId: `n-${i}`, ttsAudioBase64: 'QUJD' }));
+  }
+  assert.equal(shelf.length, SHELF_MAX);
+  assert.equal(shelf[0].noteId, 'n-7');
+  assert.equal(shelf[4].noteId, 'n-3');
+  assert.equal('ttsAudioBase64' in shelf[0], false);
+  assert.equal(shelf[0].firstLine, 'Row faster');
+  assert.equal(shelf[0].origin, 'notch drop');
+  assert.equal(shelf[0].language, 'ml-IN');
 });
 
-// ---- watched-folder line ----
-test('watchLine: absent means absent', () => {
-  assert.equal(watchLine({}), null);
-  assert.equal(watchLine(null), null);
-  assert.equal(watchLine({ phone: {} }), null);
+test('chipLine: the first English line, trimmed to the chip width', () => {
+  assert.equal(chipLine({ firstLine: 'short' }), 'short');
+  const long = 'x'.repeat(80);
+  assert.equal(chipLine({ firstLine: long }).length <= 42, true);
+  assert.match(chipLine({ firstLine: long }), /…$/);
+  assert.equal(chipLine({}), '');
 });
 
-test('watchLine: strings and object forms are picked up', () => {
-  assert.equal(watchLine({ watching: '~/Downloads/rowing-call-inbox' }), '~/Downloads/rowing-call-inbox');
-  assert.equal(watchLine({ watcher: { status: 'watching 1 folder' } }), 'watching 1 folder');
-  assert.equal(watchLine({ watcher: { dirs: ['a', 'b'] } }), 'watching 2 folders');
+// ---- elapsed and collapse ----
+test('elapsedSeconds: whole seconds for the live activity, floored and clamped', () => {
+  assert.equal(elapsedSeconds(10_500, 10_000), 0);
+  assert.equal(elapsedSeconds(12_000, 10_000), 2);
+  assert.equal(elapsedSeconds(9_000, 10_000), 0);
+  assert.equal(elapsedSeconds(NaN, 10_000), 0);
 });
 
-// ---- collapse rules ----
 test('shouldCollapse: only after the quiet window, and holds beat the timer', () => {
   const t0 = 1_000_000;
   assert.equal(shouldCollapse(t0 + COLLAPSE_AFTER_MS - 1, t0), false);
   assert.equal(shouldCollapse(t0 + COLLAPSE_AFTER_MS, t0), true);
   assert.equal(shouldCollapse(t0 + 60_000, t0, { focused: true }), false);
   assert.equal(shouldCollapse(t0 + 60_000, t0, { recording: true }), false);
-  assert.equal(shouldCollapse(t0 + 60_000, t0, { callOpen: true }), false);
+  assert.equal(shouldCollapse(t0 + 60_000, t0, { busy: true }), false);
+  assert.equal(shouldCollapse(t0 + 60_000, t0, { resultOpen: true }), false);
+  assert.equal(shouldCollapse(t0 + 60_000, t0, { dragOver: true }), false);
   assert.equal(shouldCollapse(t0 + 60_000, NaN), false);
 });
 
-// ---- shout sources ----
-test('SHOUT_SOURCE: every kind has a notch name and a canonical fallback', () => {
-  for (const kind of ['text', 'mic', 'drop']) {
-    const s = SHOUT_SOURCE[kind];
-    assert.ok(s.preferred.startsWith('notch_') || s.preferred.startsWith('mac_'));
-    assert.ok(['text', 'mic', 'voice_note'].includes(s.fallback));
-  }
+// ---- sources and received line ----
+test('SHOUT_SOURCE: the notch speaks the server source names', () => {
+  assert.equal(SHOUT_SOURCE.drop, 'notch_drop');
+  assert.equal(SHOUT_SOURCE.text, 'text');
+  assert.equal(SHOUT_SOURCE.mic, 'mic');
 });
 
-// ---- Malayalam original ----
-test('malayalamOf: second-ear transcript wins, then own fields', () => {
-  assert.equal(malayalamOf(call({ secondEar: { transcript: 'വേഗത്തില്‍ ചല്ല്' } })), 'വേഗത്തില്‍ ചല്ല്');
-  assert.equal(malayalamOf(call({ transcript: 'x' })), 'x');
-  assert.equal(malayalamOf(call()), null);
-  assert.equal(malayalamOf(null), null);
+test('receivedLine: filename and duration joined plainly', () => {
+  assert.equal(receivedLine({ filename: 'PTT-1.opus', seconds: 12.4 }), 'Received PTT-1.opus · 12 s');
+  assert.equal(receivedLine({ filename: 'PTT-1.opus' }), 'Received PTT-1.opus');
+  assert.equal(receivedLine({}), 'Received');
+});
+
+test('acceptsAudioName: WhatsApp and common formats pass; others do not', () => {
+  assert.equal(acceptsAudioName('PTT-20261121-WA0001.opus'), true);
+  assert.equal(acceptsAudioName('note.M4A'), true);
+  assert.equal(acceptsAudioName('clip.webm'), true);
+  assert.equal(acceptsAudioName('photo.jpg'), false);
+  assert.equal(acceptsAudioName('.opus'), false);
+  assert.equal(acceptsAudioName(null), false);
 });

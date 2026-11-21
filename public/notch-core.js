@@ -1,123 +1,136 @@
-// rowing-call notch island: pure logic. No DOM, no I/O — the page (notch.js)
-// feeds it SSE payloads and times; the tests run the same functions in Node.
+// Malayalam-in-the-notch island: pure logic. No DOM, no I/O — the page
+// (notch.js) feeds it SSE payloads and times; the tests run the same functions
+// in Node.
 
-export const PHASES = Object.freeze(['idle', 'call', 'verdict']);
-export const COLLAPSE_AFTER_MS = 6000;
-export const DEFAULT_WINDOW_MS = 8000;
+// Island phases. 'dragover' is a modifier, not a phase: the island can be
+// hovered/drag-target while in any phase, tracked by flags in notch.js.
+export const PHASES = Object.freeze(['idle', 'received', 'translating', 'result', 'recording', 'error']);
+export const COLLAPSE_AFTER_MS = 8000;
+export const SHELF_MAX = 5;
 
-// A call whose meaning was recognised opens the island; a result always shows
-// the verdict. Anything else leaves the phase alone.
+// received → translating is automatic the moment the note leaves for Sarvam;
+// the phase only flips back to idle when nothing is in flight and the shelf is
+// closed. A note or an error always lands on result/error.
 export function nextPhase(phase, event, payload) {
   if (!PHASES.includes(phase)) phase = 'idle';
-  if (event === 'call' && payload && payload.status === 'ok' && payload.meaning) return 'call';
-  if (event === 'result' && payload && typeof payload === 'object') return 'verdict';
-  return phase;
+  switch (event) {
+    case 'received': return payload ? 'received' : phase;
+    case 'note': return payload ? 'result' : phase;
+    case 'note_error': return 'error';
+    case 'recording': return payload === false ? 'idle' : 'recording';
+    case 'reset': return 'idle';
+    default: return phase;
+  }
 }
 
-export const VERDICTS = Object.freeze({
-  obeyed: { word: 'OBEYED', cls: 'ok' },
-  not_obeyed: { word: 'NOT OBEYED', cls: 'bad' },
-  not_sure: { word: 'NOT SURE', cls: 'warn' },
-});
-
-export function verdictOf(result) {
-  const key = result && typeof result.outcome === 'string' ? result.outcome : 'not_sure';
-  return VERDICTS[key] || VERDICTS.not_sure;
+// One plain sentence per phase — the "what is happening" line. Every state
+// names itself; nothing is communicated by colour alone.
+export function phaseLine(phase, ctx = {}) {
+  switch (phase) {
+    case 'idle': return ctx.notesToday > 0 ? `${ctx.notesToday} note${ctx.notesToday === 1 ? '' : 's'} translated today` : 'Drop a WhatsApp voice note';
+    case 'received': return ctx.filename ? `Received ${ctx.filename}` : 'Received';
+    case 'translating': return 'Translating';
+    case 'recording': return 'Recording — release to translate';
+    case 'result': return 'Done';
+    case 'error': return ctx.message || 'Something went wrong. Try the note again.';
+    default: return '';
+  }
 }
 
-// One-line plain reason for the verdict, mirroring the dashboard's detailOf().
-export function verdictReason(r) {
-  if (!r || typeof r !== 'object') return '';
-  return [
-    r.reason,
-    Number.isFinite(r.deltaSpm) ? `Δ ${r.deltaSpm > 0 ? '+' : ''}${Math.round(r.deltaSpm)} spm` : '',
-    Number.isFinite(r.strokesObserved) ? `${r.strokesObserved} strokes observed` : '',
-    r.superseded ? 'window cut short by a newer call' : '',
-  ].filter(Boolean).join(' · ');
+// The three card fields, each only what the API returned — never fabricated.
+// A failed mode shows an honest "not available" line.
+export function cardFields(note) {
+  if (!note || typeof note !== 'object') return null;
+  const failed = Array.isArray(note.failedOps) ? note.failedOps : [];
+  return {
+    malayalam: typeof note.sourceText === 'string' && note.sourceText ? note.sourceText : null,
+    malayalamFailed: failed.includes('transcribe'),
+    roman: typeof note.romanText === 'string' && note.romanText ? note.romanText : null,
+    romanFailed: failed.includes('translit'),
+    english: typeof note.translatedText === 'string' && note.translatedText ? note.translatedText : null,
+    englishFailed: failed.includes('translate'),
+    detectedLanguage: typeof note.detectedLanguage === 'string' && note.detectedLanguage ? note.detectedLanguage : null,
+  };
 }
 
-// Countdown ring for the observation window. Returns the remaining fraction
-// in [0, 1]; 0 before the call or after the window closes.
-export function countdown(nowT, callT, windowMs) {
-  if (!Number.isFinite(nowT) || !Number.isFinite(callT) || !Number.isFinite(windowMs) || windowMs <= 0) return 0;
-  const left = (callT + windowMs - nowT) / windowMs;
-  return Math.min(1, Math.max(0, left));
-}
-
-// Live stroke rate for the big numerals: the newest stroke within staleMs,
-// else 0.
-export function liveSpm(strokes, nowT, staleMs = 4000) {
-  if (!Array.isArray(strokes) || !Number.isFinite(nowT)) return 0;
-  const last = strokes[strokes.length - 1];
-  if (!last || !Number.isFinite(last.t) || nowT - last.t > staleMs) return 0;
-  return Math.max(0, Math.round(last.rateSpm || 0));
-}
-
-// The SSE call record's `source` is the data lane ('live' | 'replay'). The
-// origin ('voice_note', 'whatsapp_desktop', 'phone_mic', 'mac_mic', …) rides
-// under origin fields when a build puts it there. Report it only when the
-// payload actually carries one — never invent it.
+// The SSE note record's `source` is the data lane ('live' | 'replay'). The
+// origin ('notch_drop', 'voice_note', 'whatsapp_desktop', 'mic', …) rides in
+// `origin`. Report it only when the payload actually carries one.
 const LANE_VALUES = new Set(['live', 'replay']);
-export function callOriginBadge(call) {
-  if (!call || typeof call !== 'object') return null;
+export function noteOriginBadge(note) {
+  if (!note || typeof note !== 'object') return null;
   for (const key of ['origin', 'shoutSource', 'noteSource', 'inputSource', 'via']) {
-    const v = call[key];
+    const v = note[key];
     if (typeof v === 'string' && v && !LANE_VALUES.has(v)) return v.replace(/_/g, ' ');
     if (v && typeof v === 'object' && typeof v.source === 'string' && v.source && !LANE_VALUES.has(v.source)) {
       return v.source.replace(/_/g, ' ');
     }
   }
-  const v = call.source;
-  if (typeof v === 'string' && v && !LANE_VALUES.has(v)) return v.replace(/_/g, ' ');
   return null;
 }
 
-// Watched-folder status line: shown only when the server reports one. The
-// field is being added under a few plausible names; accept a string or an
-// object with a status/watching/line text.
-export function watchLine(state) {
-  if (!state || typeof state !== 'object') return null;
-  for (const key of ['watching', 'watcher', 'watch', 'voiceNotes', 'inbox', 'folders']) {
-    const v = state[key];
-    if (typeof v === 'string' && v) return v;
-    if (v && typeof v === 'object') {
-      for (const f of ['line', 'status', 'watching', 'text']) {
-        if (typeof v[f] === 'string' && v[f]) return v[f];
-      }
-      if (Array.isArray(v.dirs) && v.dirs.length) {
-        return `watching ${v.dirs.length} folder${v.dirs.length === 1 ? '' : 's'}`;
-      }
-    }
-  }
-  return null;
+// The shelf: the last few notes as chips. Newest first, capped, no audio.
+export function pushShelf(shelf, note, max = SHELF_MAX) {
+  const entry = {
+    noteId: note.noteId || null,
+    t: Number.isFinite(note.t) ? note.t : null,
+    origin: noteOriginBadge(note),
+    language: typeof note.detectedLanguage === 'string' ? note.detectedLanguage : null,
+    firstLine: typeof note.translatedText === 'string' ? note.translatedText.split('\n')[0] : '',
+    sourceText: typeof note.sourceText === 'string' ? note.sourceText : null,
+    romanText: typeof note.romanText === 'string' ? note.romanText : null,
+    spokenText: typeof note.spokenText === 'string' ? note.spokenText : null,
+    spokenLang: typeof note.spokenLang === 'string' ? note.spokenLang : null,
+    targetLang: typeof note.targetLang === 'string' ? note.targetLang : null,
+    ttsAvailable: Boolean(note.ttsAvailable),
+  };
+  const list = [entry, ...(Array.isArray(shelf) ? shelf : [])];
+  return list.slice(0, max);
 }
 
-// May the island collapse now? Focus, an open text field, a recording in
-// progress or a live observation window keep it open.
-export function shouldCollapse(nowT, lastActivityT, { focused = false, recording = false, callOpen = false } = {}) {
-  if (focused || recording || callOpen) return false;
+// A chip's first line of English, trimmed for the small width.
+export function chipLine(entry, max = 42) {
+  const line = entry && typeof entry.firstLine === 'string' ? entry.firstLine.trim() : '';
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1).trimEnd()}…`;
+}
+
+// Elapsed whole seconds for the live-activity counter — always a non-negative
+// integer; missing times read 0.
+export function elapsedSeconds(nowT, startedT) {
+  if (!Number.isFinite(nowT) || !Number.isFinite(startedT) || nowT <= startedT) return 0;
+  return Math.floor((nowT - startedT) / 1000);
+}
+
+// May the island collapse now? Focus, an open text field, a recording, an
+// in-flight shout or an open result card keep it open.
+export function shouldCollapse(nowT, lastActivityT, { focused = false, recording = false, busy = false, resultOpen = false, dragOver = false } = {}) {
+  if (focused || recording || busy || resultOpen || dragOver) return false;
   if (!Number.isFinite(nowT) || !Number.isFinite(lastActivityT)) return false;
   return nowT - lastActivityT >= COLLAPSE_AFTER_MS;
 }
 
-// Source names sent to POST /api/shout. The preferred names are the notch's
-// own; the fallback is what the current server accepts, used when it answers
-// invalid_source so the shout still lands (and is archived under a known name).
+// Source names sent to POST /api/shout. The server accepts every one of these
+// directly (SHOUT_SOURCES in server/hub.js).
 export const SHOUT_SOURCE = Object.freeze({
-  text: { preferred: 'notch_text', fallback: 'text' },
-  mic: { preferred: 'mac_mic', fallback: 'mic' },
-  drop: { preferred: 'notch_drop', fallback: 'voice_note' },
+  text: 'text',
+  mic: 'mic',
+  drop: 'notch_drop',
+  phone: 'phone_mic',
 });
 
-// Malayalam original for a call, when the server provides one (second-ear
-// transcript, or a transcript/original field on the record itself).
-export function malayalamOf(call) {
-  if (!call || typeof call !== 'object') return null;
-  if (call.secondEar && typeof call.secondEar.transcript === 'string' && call.secondEar.transcript) {
-    return call.secondEar.transcript;
-  }
-  for (const key of ['transcript', 'originalText', 'sourceText', 'mlText']) {
-    if (typeof call[key] === 'string' && call[key]) return call[key];
-  }
-  return null;
+// Filename + duration for the "received" line, e.g. `PTT-1.opus · 12 s`.
+export function receivedLine({ filename, seconds } = {}) {
+  const parts = [];
+  if (typeof filename === 'string' && filename) parts.push(filename);
+  if (Number.isFinite(seconds) && seconds > 0) parts.push(`${Math.round(seconds)} s`);
+  return parts.length ? `Received ${parts.join(' · ')}` : 'Received';
+}
+
+// A dropped file is worth sending when the extension is one we accept.
+export const AUDIO_EXTENSIONS = Object.freeze(['opus', 'ogg', 'm4a', 'mp3', 'wav', 'aac', 'amr', 'webm', 'mp4']);
+export function acceptsAudioName(name) {
+  if (typeof name !== 'string') return false;
+  const dot = name.lastIndexOf('.');
+  return dot > 0 && AUDIO_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
 }

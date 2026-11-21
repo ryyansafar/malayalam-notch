@@ -104,7 +104,7 @@ test('speakMalayalam: language ml with the default Malayalam voice', async () =>
 
 test('cache: a live speak is written as smallest-speak-<sha256>.json and replayed without a key or network', async () => withTmp(async (dir) => {
   const { client } = makeClient(dir, [wavResponse()]);
-  await client.speak({ text: 'Row faster', targetLang: 'en-IN' });
+  await client.speak({ text: 'Move faster', targetLang: 'en-IN' });
   const files = await readdir(dir);
   assert.equal(files.length, 1);
   assert.match(files[0], /^smallest-speak-[0-9a-f]{64}\.json$/);
@@ -116,12 +116,12 @@ test('cache: a live speak is written as smallest-speak-<sha256>.json and replaye
   const offline = fakeFetch([new Error('network must not be used')]);
   const replay = createSmallestClient({ mode: 'replay', cacheDir: dir, fetchImpl: offline.impl });
   assert.equal(replay.mode, 'replay');
-  const out = await replay.speak({ text: 'Row faster', targetLang: 'en-IN' });
+  const out = await replay.speak({ text: 'Move faster', targetLang: 'en-IN' });
   assert.equal(out.source, 'replay');
   assert.equal(out.audioBase64, WAV.toString('base64'));
   assert.equal(offline.calls.length, 0);
-  await assert.rejects(replay.speak({ text: 'Row slower', targetLang: 'en-IN' }), NoReplayAvailable);
-  await assert.rejects(replay.speak({ text: 'Row faster', targetLang: 'en-IN', voiceId: 'jeevan' }), NoReplayAvailable);
+  await assert.rejects(replay.speak({ text: 'Speak slower', targetLang: 'en-IN' }), NoReplayAvailable);
+  await assert.rejects(replay.speak({ text: 'Move faster', targetLang: 'en-IN', voiceId: 'jeevan' }), NoReplayAvailable);
 }));
 
 test('modes: auto is live with a key and replay without; live without a key is an input error', async () => withTmp(async (dir) => {
@@ -250,13 +250,7 @@ test('cache: a corrupt entry is ignored in replay', async () => withTmp(async (d
   await assert.rejects(replay.speak({ text: 'Hold', targetLang: 'en-IN' }), NoReplayAvailable);
 }));
 
-// ---- server: ttsProvider, coachPlayback, /api/providers, second ear ----
-
-const MEANING_RULES = [[/faster/i, 'speed_up', 'faster'], [/slower/i, 'slow_down', 'slower']];
-function matchMeaning(text) {
-  const hit = MEANING_RULES.find(([re]) => re.test(text));
-  return hit ? { meaning: hit[1], confidence: 'low', matchedKeyword: hit[2] } : { meaning: null, confidence: 'none' };
-}
+// ---- server: ttsProvider and /api/providers ----
 
 function fakeTimers() {
   const list = [];
@@ -266,13 +260,17 @@ function fakeTimers() {
 }
 
 async function startServer({ sarvam = {}, smallest, config = {} } = {}) {
-  const calls = { translate: [], sarvamSpeak: [], smallestSpeak: [], coach: [], transcribe: [] };
+  const calls = { stt: [], translate: [], sarvamSpeak: [], smallestSpeak: [] };
   const logs = [];
   const sarvamFake = {
     mode: 'replay',
+    stt: async (args) => {
+      calls.stt.push(args);
+      return { text: args.mode === 'transcribe' ? 'വേഗം' : args.mode === 'translit' ? 'vegam' : 'Move faster', language: 'ml-IN', source: 'live', latencyMs: 100 };
+    },
     translate: async (args) => {
       calls.translate.push(args);
-      return args.audio ? { text: 'Row faster', source: 'live', latencyMs: 100 } : { text: 'Row faster please', source: 'live', latencyMs: 40 };
+      return { text: args.sourceLang === 'en-IN' ? 'move faster in hindi' : 'Move faster', language: 'ml-IN', source: 'live', latencyMs: 40 };
     },
     speak: async (args) => { calls.sarvamSpeak.push(args); return { audioBase64: 'U0FSVkFN', mime: 'audio/wav', source: 'live', latencyMs: 80 }; },
     ...sarvam,
@@ -280,13 +278,10 @@ async function startServer({ sarvam = {}, smallest, config = {} } = {}) {
   const smallestFake = smallest === null ? null : {
     mode: 'live',
     speak: async (args) => { calls.smallestSpeak.push(args); return { audioBase64: 'U01BTEw=', mime: 'audio/wav', source: 'live', latencyMs: 30 }; },
-    speakMalayalam: async (args) => { calls.coach.push(args); return { audioBase64: 'Q09BQ0g=', mime: 'audio/wav', source: 'live', latencyMs: 25 }; },
-    transcribe: async (args) => { calls.transcribe.push(args); return { text: 'വേഗം', source: 'live', latencyMs: 60 }; },
     ...smallest,
   };
   const app = createServer({
-    sarvam: sarvamFake, ...(smallestFake ? { smallest: smallestFake } : {}), matchMeaning,
-    evaluate: () => ({ obeyed: true, strokesUntilObeyed: 1, deltaSpm: 5, reason: 'ok' }),
+    sarvam: sarvamFake, smallest: smallestFake,
     now: () => 5000, timers: fakeTimers(), log: (l) => logs.push(l),
     config: { rootDir: tmpdir(), lanAddresses: [], ...config },
   });
@@ -310,51 +305,42 @@ function call(port, method, p, body) {
   });
 }
 const shout = (port, body) => call(port, 'POST', '/api/shout', body);
-const AUDIO = { audioBase64: Buffer.from('shout-bytes').toString('base64'), mime: 'audio/webm', targetLang: 'hi-IN' };
+const AUDIO = { audioBase64: Buffer.from('note-bytes').toString('base64'), mime: 'audio/webm', targetLang: 'hi-IN' };
 
-test('server default: sarvam speaks, no coach audio, no ears fields, smallest is never called', async () => {
-  const s = await startServer({ config: { secondEar: false } });
+test('server default: sarvam speaks, smallest is never called', async () => {
+  const s = await startServer();
   try {
     const r = await shout(s.port, { text: 'vegam', targetLang: 'hi-IN' });
     assert.equal(r.status, 200);
     assert.equal(r.json.ttsAudioBase64, 'U0FSVkFN');
     assert.equal(r.json.ttsProvider, 'sarvam');
     assert.deepEqual(r.json.tts, { provider: 'sarvam', latencyMs: 80, source: 'live' });
-    assert.equal(r.json.confidence, 'low');
-    assert.equal(r.json.latencyMs, 120);
-    for (const field of ['ears', 'secondEar', 'coachAudioBase64', 'coachMime']) assert.equal(field in r.json, false, field);
     const a = await shout(s.port, AUDIO);
-    assert.equal('ears' in a.json, false);
-    assert.deepEqual([s.calls.smallestSpeak.length, s.calls.coach.length, s.calls.transcribe.length], [0, 0, 0]);
-    assert.equal(s.calls.translate.length, 2);
+    assert.equal(a.status, 200);
+    assert.equal(s.calls.smallestSpeak.length, 0);
+    assert.equal(s.calls.stt.length, 3);
   } finally {
     await s.stop();
   }
 });
 
-test('server ttsProvider smallest: same phrase table, provider and latency recorded in the trials table', async () => {
+test('server ttsProvider smallest: smallest speaks, provider and latency recorded', async () => {
   const s = await startServer();
   try {
-    const r = await shout(s.port, { text: 'vegam', targetLang: 'ta-IN', ttsProvider: 'smallest' });
+    const r = await shout(s.port, { text: 'vegam', targetLang: 'hi-IN', ttsProvider: 'smallest' });
     assert.equal(r.status, 200);
-    assert.deepEqual(s.calls.smallestSpeak, [{ text: 'வேகமாக போடு', targetLang: 'ta-IN' }]);
+    assert.deepEqual(s.calls.smallestSpeak, [{ text: 'move faster in hindi', targetLang: 'hi-IN' }]);
     assert.equal(s.calls.sarvamSpeak.length, 0);
     assert.equal(r.json.ttsAudioBase64, 'U01BTEw=');
     assert.deepEqual(r.json.tts, { provider: 'smallest', latencyMs: 30, source: 'live' });
-    assert.equal(r.json.latencyMs, 70);
-    await shout(s.port, { text: 'vegam', targetLang: 'ta-IN' }); // supersedes the first call, which is then judged
     const state = await call(s.port, 'GET', '/api/state');
-    assert.equal(state.json.trials.length, 1);
-    assert.equal(state.json.trials[0].ttsProvider, 'smallest');
-    assert.deepEqual(state.json.trials[0].tts, { provider: 'smallest', latencyMs: 30, source: 'live' });
-    assert.equal(state.json.lastCall.ttsProvider, 'sarvam');
-    assert.equal(state.text.includes('U01BTEw='), false);
+    assert.equal(state.text.includes('U01BTEw='), false); // audio never enters state
   } finally {
     await s.stop();
   }
 });
 
-test('server ttsProvider smallest: a failed speak leaves the call without audio and tts null', async () => {
+test('server ttsProvider smallest: a failed speak leaves the note without audio and tts null', async () => {
   const s = await startServer({ smallest: { speak: async () => { throw new Error(`secret ${FAKE_KEY}`); } } });
   try {
     const r = await shout(s.port, { text: 'vegam', targetLang: 'hi-IN', ttsProvider: 'smallest' });
@@ -368,58 +354,21 @@ test('server ttsProvider smallest: a failed speak leaves the call without audio 
   }
 });
 
-test('server coachPlayback: typed text is spoken back in Malayalam; audio input skips it; audio never enters state', async () => {
-  const s = await startServer();
-  try {
-    const r = await shout(s.port, { text: ' വേഗം ', targetLang: 'hi-IN', coachPlayback: true });
-    assert.equal(r.status, 200);
-    assert.deepEqual(s.calls.coach, [{ text: 'വേഗം' }]);
-    assert.equal(r.json.coachAudioBase64, 'Q09BQ0g=');
-    assert.equal(r.json.coachMime, 'audio/wav');
-    assert.equal(r.json.coachLatencyMs, 25);
-    assert.equal(r.json.ttsProvider, 'sarvam');
-    const a = await shout(s.port, { ...AUDIO, coachPlayback: true });
-    assert.equal(a.status, 200);
-    assert.equal('coachAudioBase64' in a.json, false);
-    assert.equal(s.calls.coach.length, 1);
-    const state = await call(s.port, 'GET', '/api/state');
-    assert.equal(state.text.includes('Q09BQ0g='), false);
-  } finally {
-    await s.stop();
-  }
-});
-
-test('server coachPlayback: a failed playback does not fail the shout', async () => {
-  const s = await startServer({ smallest: { speakMalayalam: async () => { throw new Error('down'); } } });
-  try {
-    const r = await shout(s.port, { text: 'vegam', targetLang: 'hi-IN', coachPlayback: true });
-    assert.equal(r.status, 200);
-    assert.equal(r.json.status, 'ok');
-    assert.equal('coachAudioBase64' in r.json, false);
-    assert.ok(s.logs.some((l) => l.includes('coach playback failed')));
-  } finally {
-    await s.stop();
-  }
-});
-
-test('server validation: bad ttsProvider and coachPlayback get clear 400s; smallest missing is a 400', async () => {
+test('server validation: bad ttsProvider gets a clear 400; smallest missing is a 400', async () => {
   const s = await startServer();
   const bare = await startServer({ smallest: null });
   try {
-    const cases = [
+    for (const [port, extra, code] of [
       [s.port, { ttsProvider: 'other' }, 'invalid_tts_provider'],
       [s.port, { ttsProvider: 5 }, 'invalid_tts_provider'],
-      [s.port, { coachPlayback: 'yes' }, 'invalid_coach_playback'],
       [bare.port, { ttsProvider: 'smallest' }, 'tts_provider_unavailable'],
-      [bare.port, { coachPlayback: true }, 'coach_playback_unavailable'],
-    ];
-    for (const [port, extra, code] of cases) {
+    ]) {
       const r = await shout(port, { text: 'vegam', targetLang: 'hi-IN', ...extra });
       assert.equal(r.status, 400, code);
       assert.equal(r.json.error.code, code);
     }
     assert.equal(s.calls.translate.length, 0);
-    const ok = await shout(bare.port, { text: 'vegam', targetLang: 'hi-IN', ttsProvider: 'sarvam', coachPlayback: false });
+    const ok = await shout(bare.port, { text: 'vegam', targetLang: 'hi-IN', ttsProvider: 'sarvam' });
     assert.equal(ok.status, 200);
   } finally {
     await s.stop();
@@ -428,138 +377,23 @@ test('server validation: bad ttsProvider and coachPlayback get clear 400s; small
 });
 
 test('GET /api/providers: booleans and modes only', async () => {
-  const s = await startServer({ config: { secondEar: true, sarvamKeyPresent: true, smallestKeyPresent: true, mode: 'live' } });
-  const bare = await startServer({ smallest: null, config: { secondEar: true } });
+  const s = await startServer({ config: { sarvamKeyPresent: true, smallestKeyPresent: true, mode: 'live' } });
+  const bare = await startServer({ smallest: null });
   try {
     const r = await call(s.port, 'GET', '/api/providers');
     assert.equal(r.status, 200);
     assert.deepEqual(r.json, {
       ok: true,
       providers: { sarvam: { configured: true, mode: 'replay' }, smallest: { configured: true, mode: 'live' } },
-      ttsProviders: ['sarvam', 'smallest'], defaultTtsProvider: 'sarvam', coachPlayback: true, secondEar: true,
+      ttsProviders: ['sarvam', 'smallest'], defaultTtsProvider: 'sarvam',
       watchDirs: [],
     });
     const b = await call(bare.port, 'GET', '/api/providers');
     assert.deepEqual(b.json.providers.smallest, { configured: false, mode: null });
     assert.deepEqual(b.json.ttsProviders, ['sarvam']);
-    assert.equal(b.json.secondEar, false);
-    assert.equal(b.json.coachPlayback, false);
     assert.equal((await call(s.port, 'POST', '/api/providers', {})).status, 405);
   } finally {
     await s.stop();
     await bare.stop();
-  }
-});
-
-// The second ear: Pulse transcript -> sarvam.translate({ text }) -> matchMeaning. Saaras hears "Row faster".
-function earServer(pulseEnglish, smallest = {}) {
-  return startServer({
-    config: { secondEar: true },
-    smallest,
-    sarvam: {
-      translate: async (args) => (args.audio
-        ? { text: 'Row faster', source: 'live', latencyMs: 100 }
-        : { text: pulseEnglish, source: 'live', latencyMs: 40 }),
-    },
-  });
-}
-
-test('second ear agree: confidence becomes high, ears "agree", trial row carries it', async () => {
-  const s = await earServer('Go faster');
-  try {
-    const r = await shout(s.port, { ...AUDIO, ttsProvider: 'smallest' });
-    assert.equal(r.status, 200);
-    assert.equal(r.json.status, 'ok');
-    assert.equal(r.json.meaning, 'speed_up');
-    assert.equal(r.json.confidence, 'high');
-    assert.equal(r.json.ears, 'agree');
-    assert.deepEqual(r.json.secondEar, { transcript: 'വേഗം', translatedText: 'Go faster', meaning: 'speed_up', source: 'live', latencyMs: 100 });
-    assert.equal(r.json.latencyMs, 130); // max(100, 60 + 40) + 30
-    assert.equal(s.calls.transcribe.length, 1);
-    assert.equal(s.calls.transcribe[0].language, 'ml');
-    assert.ok(Buffer.isBuffer(s.calls.transcribe[0].audio));
-    await shout(s.port, AUDIO);
-    const state = await call(s.port, 'GET', '/api/state');
-    assert.equal(state.json.trials[0].ears, 'agree');
-    assert.equal(state.json.trials[0].ttsProvider, 'smallest');
-  } finally {
-    await s.stop();
-  }
-});
-
-test('second ear disagree: not_sure with reason "two ears disagree", nothing is spoken', async () => {
-  const s = await earServer('Row slower');
-  try {
-    const r = await shout(s.port, AUDIO);
-    assert.equal(r.status, 200);
-    assert.equal(r.json.status, 'not_sure');
-    assert.equal(r.json.reason, 'two ears disagree');
-    assert.equal(r.json.ears, 'disagree');
-    assert.equal(r.json.meaning, null);
-    assert.equal(r.json.secondEar.meaning, 'slow_down');
-    assert.equal(r.json.ttsProvider, null);
-    assert.equal(s.calls.sarvamSpeak.length, 0);
-    const state = await call(s.port, 'GET', '/api/state');
-    assert.equal(state.json.trials[0].ears, 'disagree');
-    assert.equal(state.json.tally.notSure, 1);
-  } finally {
-    await s.stop();
-  }
-});
-
-test('second ear single: only one ear has a meaning, or the second ear fails', async () => {
-  const onlyFirst = await earServer('something unclear');
-  const failed = await earServer('unused', { transcribe: async () => { throw new Error(`boom ${FAKE_KEY}`); } });
-  const onlySecond = await startServer({
-    config: { secondEar: true },
-    sarvam: { translate: async (args) => ({ text: args.audio ? 'mumble' : 'Row slower', source: 'live', latencyMs: 10 }) },
-  });
-  try {
-    const a = await shout(onlyFirst.port, AUDIO);
-    assert.deepEqual([a.json.status, a.json.meaning, a.json.ears, a.json.confidence], ['ok', 'speed_up', 'single', 'low']);
-    const b = await shout(failed.port, AUDIO);
-    assert.deepEqual([b.json.status, b.json.meaning, b.json.ears, b.json.secondEar], ['ok', 'speed_up', 'single', null]);
-    assert.ok(failed.logs.some((l) => l.includes('second ear failed')));
-    assert.equal(failed.logs.join('\n').includes(FAKE_KEY), false);
-    const c = await shout(onlySecond.port, AUDIO);
-    assert.deepEqual([c.json.status, c.json.meaning, c.json.ears, c.json.matchedKeyword], ['ok', 'slow_down', 'single', 'slower']);
-    assert.equal(c.json.translatedText, 'mumble');
-  } finally {
-    await onlyFirst.stop();
-    await failed.stop();
-    await onlySecond.stop();
-  }
-});
-
-test('second ear: neither ear has a meaning gives the usual not_sure; typed text never uses it', async () => {
-  const s = await earServer('still unclear', {});
-  const none = await startServer({
-    config: { secondEar: true },
-    sarvam: { translate: async () => ({ text: 'mumble', source: 'live', latencyMs: 10 }) },
-  });
-  try {
-    const r = await shout(none.port, AUDIO);
-    assert.deepEqual([r.json.status, r.json.ears], ['not_sure', 'none']);
-    assert.match(r.json.reason, /Meaning not recognised/);
-    const typed = await shout(s.port, { text: 'vegam', targetLang: 'hi-IN' });
-    assert.equal(typed.status, 200);
-    assert.equal('ears' in typed.json, false);
-    assert.equal(s.calls.transcribe.length, 0);
-  } finally {
-    await s.stop();
-    await none.stop();
-  }
-});
-
-test('second ear flag on without a smallest client: behaves exactly as the default', async () => {
-  const s = await startServer({ smallest: null, config: { secondEar: true } });
-  try {
-    const r = await shout(s.port, AUDIO);
-    assert.equal(r.status, 200);
-    assert.equal(r.json.meaning, 'speed_up');
-    assert.equal('ears' in r.json, false);
-    assert.equal(r.json.latencyMs, 180);
-  } finally {
-    await s.stop();
   }
 });

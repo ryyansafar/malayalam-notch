@@ -135,20 +135,19 @@ export function landingPage({ phoneUrl, otherPhoneUrls = [], mode, https }) {
     ([label, href]) => `<a href="${escapeHtml(href)}" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
   ).join('');
   return page(
-    'rowing-call',
-    `<h1>rowing-call</h1>
-<p>The phone is the oar. A shouted Malayalam work call is translated, spoken to the rower in their language, and the stroke rate shows whether the rower obeyed.</p>
-<p class="muted">An induction and classroom drill, not race equipment.</p>
+    'Malayalam in the notch',
+    `<h1>Malayalam in the notch</h1>
+<p>Drag a WhatsApp voice note toward the MacBook notch. It expands, transcribes the Malayalam, shows the script, the romanised line and an English translation — and can speak it back in another language.</p>
+<p class="muted">Transcription and translation run in the Sarvam cloud; the API reports a language, not a dialect.</p>
 <p>Sarvam mode: <span class="badge ${live ? 'live' : 'replay'}">${live ? 'LIVE' : 'REPLAY'}</span></p>
 <div class="grid">
-<section aria-labelledby="phone-h"><h2 id="phone-h">Phone: scan to row</h2>
+<section aria-labelledby="phone-h"><h2 id="phone-h">Phone: speak Malayalam</h2>
 <img class="qr" alt="QR code that opens the phone page" src="/qr.svg?url=${encodeURIComponent(phoneUrl)}">
 <p><code>${escapeHtml(phoneUrl)}</code>${others}</p>${httpsNote}</section>
 <section aria-labelledby="dash-h"><h2 id="dash-h">Laptop</h2>
-<a class="cta" href="/dashboard">Open the dashboard</a>
-<p class="muted">Shout box, live stroke rate, obedience result and the evidence table.</p></section>
+<a class="cta" href="/dashboard">Open the desk</a>
+<p class="muted">Voice-note drop zone, searchable archive, export and provider status.</p></section>
 </div>
-<p class="notice">Call table is placeholder: real race calls not yet collected (UNVERIFIED). Spoken phrases are not yet reviewed by native speakers.</p>
 <footer><span class="muted">Built at Hackathoni by ryyansafar.</span><br>${links}</footer>`,
   );
 }
