@@ -444,7 +444,9 @@ export function createServer(deps = {}) {
       // Speak-again: stored archive text re-spoken in the chosen language.
       const body = await readJson(req, cfg.maxBodyBytes);
       if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
-      if (!H.LANGS.includes(body.targetLang)) throw bad('invalid_target_lang', `targetLang must be one of: ${H.LANGS.join(', ')}`);
+      // Spoken output can also be Malayalam (the briefing and reminders), which is not a rower-style target.
+      const speakLangs = [...H.LANGS, 'ml-IN'];
+      if (!speakLangs.includes(body.targetLang)) throw bad('invalid_target_lang', `targetLang must be one of: ${speakLangs.join(', ')}`);
       const text = typeof body.text === 'string' ? body.text.trim() : '';
       if (!text) throw bad('invalid_text', 'text must be a non-empty string');
       if (text.length > cfg.maxSpeakChars) throw bad('invalid_text', `text must be at most ${cfg.maxSpeakChars} characters`);

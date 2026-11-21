@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "cffd788b160b580e73956c523cf1b311f2fc744c53370ab55fc3306e00a080ed",
+  "input": {
+    "kind": "text",
+    "text": "Good day. Battery 80 percent. You have one reminder.",
+    "sourceLang": "en-IN",
+    "targetLang": "ml-IN"
+  },
+  "result": {
+    "text": "നമസ്കാരം. ബാറ്ററി 80 ശതമാനമാണ്. താങ്കൾക്ക് ഒരു ഓർമ്മപ്പെടുത്തൽ ഉണ്ട്.",
+    "language": "en-IN"
+  },
+  "recordedAt": "2026-11-21T21:02:51.497Z"
+}
