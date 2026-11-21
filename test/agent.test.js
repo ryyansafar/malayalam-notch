@@ -56,7 +56,7 @@ test('agent survives a failing upstream and empty input', async () => {
 });
 
 test('the tool list is the only surface the model can reach', () => {
-  assert.deepEqual(Object.keys(TOOLS).sort(), ['appearance', 'battery_status', 'briefing', 'call_me', 'find_files', 'media', 'open_app', 'quit_app', 'remember', 'remind', 'set_brightness', 'set_volume', 'tidy_desktop', 'timer', 'translate_clipboard', 'whatsapp', 'youtube_summary']);
+  assert.deepEqual(Object.keys(TOOLS).sort(), ['appearance', 'battery_status', 'briefing', 'call_me', 'find_files', 'media', 'open_app', 'quit_app', 'remember', 'remind', 'remind_at', 'set_brightness', 'set_volume', 'tidy_desktop', 'timer', 'translate_clipboard', 'whatsapp', 'youtube_summary']);
 });
 
 test('percent tools allow 0 and reject out-of-range values', () => {
@@ -66,4 +66,15 @@ test('percent tools allow 0 and reject out-of-range values', () => {
   assert.equal(cleanAction({ tool: 'set_volume', args: { percent: -1 } }), null);
   assert.deepEqual(cleanAction({ tool: 'appearance', args: { mode: 'dark' } }), { tool: 'appearance', args: { mode: 'dark' } });
   assert.equal(cleanAction({ tool: 'appearance', args: { mode: 'purple' } }), null);
+});
+
+test('remind_at: the server, not the model, works out the minutes', async () => {
+  const { remindAtToMinutes, cleanAction } = await import('../server/agent.js');
+  const now = new Date(2026, 10, 22, 4, 13, 0);
+  const at = (time, day) => remindAtToMinutes(cleanAction({ tool: 'remind_at', args: { text: 'x', time, day } }), now);
+  assert.equal(at('20:00', 'today').args.minutes, 947);
+  assert.equal(at('06:00', 'tomorrow').args.minutes, 1547);
+  assert.equal(at('03:00', 'today').args.minutes, 22 * 60 + 47);   // already past today: rolls to tomorrow
+  assert.equal(cleanAction({ tool: 'remind_at', args: { text: 'x', time: '25:00', day: 'today' } }), null);
+  assert.equal(cleanAction({ tool: 'remind_at', args: { text: 'x', time: '8pm', day: 'today' } }), null);
 });

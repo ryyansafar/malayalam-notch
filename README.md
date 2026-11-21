@@ -1,6 +1,6 @@
 # Malayalam in the notch
 
-**Drag a WhatsApp voice note toward the MacBook notch. The island opens, the Malayalam is transcribed and translated, and the answer can be spoken back in another language.**
+**A helper that lives in the MacBook notch. Drop a Malayalam voice note to read it in script, English letters and English. Shake any file or folder at the notch to have it explained or copied. Ask it for things in Malayalam or English, and it asks before it does anything risky.**
 
 Built at Hackathoni (Alappuzha, 21-22 Nov 2026). A native SwiftUI app for the notch (`malayalam-notch/`, written from scratch, no Xcode project needed) plus a Node 20 server (one runtime dependency, a QR code library) that talks to Sarvam and smallest.ai.
 

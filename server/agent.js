@@ -13,6 +13,7 @@ export const TOOLS = Object.freeze({
   open_app: { name: 'string' },
   whatsapp: { contact: 'string?', text: 'string?' },
   remind: { text: 'string', minutes: 'number' },
+  remind_at: { text: 'string', time: 'time', day: ['today', 'tomorrow'] },
   timer: { seconds: 'number' },
   tidy_desktop: {},
   translate_clipboard: {},
@@ -35,7 +36,8 @@ Reply ONLY with one JSON object: {"reply": string, "actions": [{"tool": string, 
 Tools (use only these):
 - open_app {name}: open a Mac app, e.g. WhatsApp, Calendar, Notes, Safari.
 - whatsapp {contact, text}: open WhatsApp with a message ready. If the user gave the message content, put it in text (translate it to the language of the contact if they ask; otherwise keep it as spoken).
-- remind {text, minutes}: remind the user in N minutes (convert hours to minutes).
+- remind {text, minutes}: remind the user after a RELATIVE delay ("in 10 minutes", "in 2 hours"; convert hours to minutes).
+- remind_at {text, time, day}: remind the user at a CLOCK time. time is 24-hour "HH:MM" (8 pm is "20:00"), day is "today" or "tomorrow". Use this for "at 6 am", "tomorrow morning at 6". Never compute minutes yourself.
 - timer {seconds}.
 - tidy_desktop {}: scan the desktop and propose a tidy-up.
 - translate_clipboard {}.
@@ -65,6 +67,10 @@ export function cleanAction(a) {
     if (Array.isArray(kind)) {
       if (!kind.includes(v)) return null;
       args[k] = v;
+    } else if (kind === 'time') {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(typeof v === 'string' ? v.trim() : '');
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+      args[k] = `${m[1].padStart(2, '0')}:${m[2]}`;
     } else if (kind === 'percent') {
       const n = Number(v);
       if (!Number.isFinite(n) || n < 0 || n > 100) return null;
@@ -83,6 +89,17 @@ export function cleanAction(a) {
     }
   }
   return { tool: a.tool, args };
+}
+
+/** "remind at 20:00 today" -> { tool: 'remind', args: { text, minutes } } worked out here, never by the model. */
+export function remindAtToMinutes(a, now = new Date()) {
+  const [h, m] = a.args.time.split(':').map(Number);
+  const target = new Date(now);
+  target.setHours(h, m, 0, 0);
+  if (a.args.day === 'tomorrow') target.setDate(target.getDate() + 1);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const minutes = Math.ceil((target - now) / 60000);
+  return minutes > 0 && minutes <= 60 * 24 * 14 ? { tool: 'remind', args: { text: a.args.text, minutes } } : null;
 }
 
 /** Pull the JSON object out of a model reply (it may be wrapped in a code fence or prose). */
@@ -111,7 +128,7 @@ export function createAgent({ apiKey, fetchImpl = globalThis.fetch, model = AGEN
         headers: { 'api-subscription-key': key, 'content-type': 'application/json' },
         body: JSON.stringify({
           model, reasoning_effort: null, temperature: 0.1, max_tokens: 500, response_format: { type: 'json_object' },
-          messages: [{ role: 'system', content: profile ? `${SYSTEM}\n\nAbout the user (private, shared by them; use only when relevant, never repeat it back unless asked):\n${clip(profile, 800)}` : SYSTEM }, { role: 'user', content: q }],
+          messages: [{ role: 'system', content: (profile ? `${SYSTEM}\n\nAbout the user (private, shared by them; use only when relevant, never repeat it back unless asked):\n${clip(profile, 800)}` : SYSTEM) + `\n\nThe current local time is ${new Date().toLocaleString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. For "remind" always work out the number of minutes from NOW to the requested time ("tomorrow at 6 am" is the minutes until 6 am tomorrow, never a day count). Reply language: ${/[\u0D00-\u0D7F]/.test(q) ? 'Malayalam (script)' : 'English'}.` }, { role: 'user', content: q }],
         }),
         signal: ctl.signal,
       });
@@ -119,7 +136,7 @@ export function createAgent({ apiKey, fetchImpl = globalThis.fetch, model = AGEN
       const data = await res.json();
       const parsed = parseModelJson(data?.choices?.[0]?.message?.content);
       if (!parsed) return { ok: true, reply: '', actions: [], latencyMs: Date.now() - t0, note: 'unparseable' };
-      const actions = (Array.isArray(parsed.actions) ? parsed.actions : []).map(cleanAction).filter(Boolean).slice(0, 4);
+      const actions = (Array.isArray(parsed.actions) ? parsed.actions : []).map(cleanAction).filter(Boolean).slice(0, 4).map((a) => (a.tool === 'remind_at' ? remindAtToMinutes(a) : a)).filter(Boolean);
       return { ok: true, reply: clip(parsed.reply, 400), actions, latencyMs: Date.now() - t0 };
     } catch (e) {
       log(`[agent] ${e.name === 'AbortError' ? 'timeout' : e.message}`);
