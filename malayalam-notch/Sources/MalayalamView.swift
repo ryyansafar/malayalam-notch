@@ -218,9 +218,8 @@ struct MalayalamView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            area("VOICE") { voiceArea }.frame(width: 214)
+            area("VOICE") { voiceArea }.frame(width: 230)
             area("TRANSLATION", trailing: { badges }) { resultArea }.frame(maxWidth: .infinity)
-            area("NOW PLAYING") { NowPlayingView() }.frame(width: 190)
         }
         .animation(.smooth(duration: 0.3), value: vm.phase)
         .animation(.smooth(duration: 0.3), value: vm.note)
@@ -364,6 +363,7 @@ struct MalayalamView: View {
             }
             .menuStyle(.button).buttonStyle(.plain).fixedSize()
             Spacer(minLength: 0)
+            CopyWatchChip()
         }
     }
 

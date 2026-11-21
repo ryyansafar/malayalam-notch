@@ -71,18 +71,12 @@ final class ToolsModel: ObservableObject {
 
     func translateCopied(_ text: String) async {
         defer { copyBusy = false }
-        let base = URL(string: "http://localhost:\(ProcessInfo.processInfo.environment["MALAYALAM_PORT"] ?? "3000")")!
-        var req = URLRequest(url: base.appendingPathComponent("api/shout"))
-        req.httpMethod = "POST"; req.timeoutInterval = 30
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "source": "text", "targetLang": "en-IN", "ttsProvider": MalayalamViewModel.shared.ttsProvider])
-        guard let (d, r) = try? await URLSession.shared.data(for: req), (r as? HTTPURLResponse)?.statusCode == 200,
-              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return }
-        copied = (text, (j["romanText"] as? String) ?? "", (j["translatedText"] as? String) ?? "")
-        Audit.record(AuditEntry(tool: "translate_on_copy", tier: Tier.read.rawValue, source: "rule", result: "translated \(text.count) characters"))
-        NotchModel.shared.tab = .tools
-        NotchModel.shared.pinnedUntil = Date().addingTimeInterval(10)
+        // The result shows in the Voice tab, the same place voice notes appear.
+        NotchModel.shared.tab = .voice
+        NotchModel.shared.pinnedUntil = Date().addingTimeInterval(12)
         NotchModel.shared.setOpen(true)
+        await MalayalamViewModel.shared.translateText(text)
+        Audit.record(AuditEntry(tool: "translate_on_copy", tier: Tier.read.rawValue, source: "rule", result: "translated \(text.count) characters"))
     }
 
     // MARK: focus timer
@@ -210,5 +204,22 @@ struct TypewriterText: View {
                     shown = min(n, shown + 2)
                 }
             }
+    }
+}
+
+/// A small switch in the Voice tab: translate Malayalam text automatically when it is copied. Off until switched on.
+struct CopyWatchChip: View {
+    @ObservedObject private var t = ToolsModel.shared
+    var body: some View {
+        Button { withAnimation(.snappy) { t.copyWatch.toggle() } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: t.copyWatch ? "doc.on.clipboard.fill" : "doc.on.clipboard").font(.system(size: 13))
+                Text(t.copyWatch ? "Translating what you copy" : "Translate what I copy").font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
+            }
+            .foregroundStyle(t.copyWatch ? Color.black : .white).padding(.horizontal, 10).frame(height: 26)
+            .background(Capsule().fill(t.copyWatch ? MalayalamTheme.accent : Color.white.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .help("When on, Malayalam text you copy is sent online to be translated. Passwords are never read.")
     }
 }

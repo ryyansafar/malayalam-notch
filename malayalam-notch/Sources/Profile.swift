@@ -69,10 +69,9 @@ struct MeView: View {
     @State private var draft = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            card("TELL ME ABOUT YOU") { tellArea }.frame(maxWidth: .infinity)
-            card("WHAT I KNOW") { knownArea }.frame(width: 330)
-            card("WHAT GETS SENT ONLINE") { cloudArea }.frame(width: 250)
+        HStack(alignment: .top, spacing: 28) {
+            card("ABOUT YOU") { tellArea }.frame(maxWidth: .infinity)
+            card("WHAT I KNOW") { knownArea }.frame(maxWidth: .infinity)
         }
     }
 
@@ -101,12 +100,11 @@ struct MeView: View {
                     .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 10).frame(height: 34).background(Capsule().fill(Color.white.opacity(0.09)))
-            Text("Type it, or hold the mic and say it in Malayalam or English.").font(.system(size: 12.5)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                micButton
-
-            }
+            Toggle(isOn: $p.shareWithCloud) { Text("Let the assistant use these").font(.system(size: 14, weight: .semibold)) }
+                .toggleStyle(.switch).tint(MalayalamTheme.accent)
+            Text(p.shareWithCloud ? "Shared facts are sent online to help answers. They stay on this Mac otherwise." : "Everything stays on this Mac.")
+                .font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
         }
     }
 

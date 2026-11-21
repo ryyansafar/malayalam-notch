@@ -117,30 +117,22 @@ struct NowPlayingView: View {
         VStack(alignment: .leading, spacing: 8) {
             if m.title.isEmpty {
                 Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    Image(systemName: "music.note").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                    Text("Nothing playing").font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)
-                }
-                Text("Play something in Music or Spotify.").font(.system(size: 12.5)).foregroundStyle(.tertiary)
+                Image(systemName: "music.note").font(.system(size: 38, weight: .light)).foregroundStyle(MalayalamTheme.accent.opacity(0.8)).frame(maxWidth: .infinity)
+                Text("Nothing playing").font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
-                HStack(spacing: 10) {
-                    artworkView
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(m.title).font(.system(size: 15.5, weight: .semibold)).lineLimit(1)
-                        Text(m.artist).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
-                        Text(m.app.uppercased()).font(.system(size: 12, weight: .semibold)).tracking(1.1)
-                            .foregroundStyle(MalayalamTheme.accent.opacity(0.85))
-                    }
-                    Spacer(minLength: 0)
+                artworkView
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(m.title).font(.system(size: 17, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(m.artist).font(.system(size: 14)).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(1)
                 }
-                ProgressView(value: m.progress).progressViewStyle(.linear).tint(MalayalamTheme.accent)
-                    .frame(height: 3)
-                HStack(spacing: 18) {
+                Spacer(minLength: 0)
+                ProgressView(value: m.progress).progressViewStyle(.linear).tint(MalayalamTheme.accent).frame(height: 3)
+                HStack(spacing: 26) {
                     Spacer(minLength: 0)
-                    transport("backward.fill", 13) { m.previous() }
-                    transport(m.isPlaying ? "pause.fill" : "play.fill", 18) { m.playPause() }
-                    transport("forward.fill", 13) { m.next() }
+                    transport("backward.fill", 18) { m.previous() }
+                    transport(m.isPlaying ? "pause.fill" : "play.fill", 26) { m.playPause() }
+                    transport("forward.fill", 18) { m.next() }
                     Spacer(minLength: 0)
                 }
             }
@@ -156,14 +148,15 @@ struct NowPlayingView: View {
                 ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").foregroundStyle(.secondary) }
             }
         }
-        .frame(width: 52, height: 52)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(width: 104, height: 104)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
     }
 
     private func transport(_ symbol: String, _ size: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: size, weight: .bold)).foregroundStyle(.white)
-                .frame(width: 30, height: 28)
+                .frame(width: 44, height: 40)
         }
         .buttonStyle(.plain)
     }

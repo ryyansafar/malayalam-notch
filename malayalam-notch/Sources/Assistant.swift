@@ -313,10 +313,9 @@ struct AssistantView: View {
     private let apps = ["WhatsApp", "Calendar", "Notes", "Reminders", "Safari", "Messages"]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            card("ASSISTANT") { commandArea }.frame(maxWidth: .infinity)
-            card("REMINDERS") { remindersArea }.frame(width: 168)
-            card("DESKTOP") { desktopArea }.frame(width: 168)
+        HStack(alignment: .top, spacing: 28) {
+            commandArea.frame(maxWidth: .infinity)
+            if !a.upcoming.isEmpty { card("COMING UP") { remindersArea }.frame(width: 220) }
         }
         .onAppear { a.start() }
     }
@@ -351,7 +350,7 @@ struct AssistantView: View {
                 confirmCard(p)
             } else {
                 Group {
-                    if a.feedback.isEmpty { Text("Try: “remind me to call Amma in 10 minutes”") }
+                    if a.feedback.isEmpty { Text("Ask in English or Malayalam, or tap one.") }
                     else { TypewriterText(text: a.feedback) }
                 }
                     .font(.system(size: 12.5, weight: a.feedback.isEmpty ? .regular : .semibold))
@@ -368,13 +367,33 @@ struct AssistantView: View {
                 }
             }
 
+            if a.pending == nil {
+                HStack(spacing: 12) {
+                    tile("timer", "Set a timer") { a.submit("set a timer for 5 minutes") }
+                    tile("bell", "Remind me") { a.commandText = "remind me to "; focused = true }
+                    tile("sun.max", "Read my day") { a.submit("brief me") }
+                    tile("magnifyingglass", "Find a file") { a.commandText = "find "; focused = true }
+                }
+            }
             Spacer(minLength: 0)
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 ForEach(apps, id: \.self) { name in appButton(name) }
                 Spacer(minLength: 0)
-                pill("doc.on.clipboard", "Translate clipboard") { a.translateClipboard() }
             }
         }
+    }
+
+    /// A big one-tap suggestion: what it does is the label, so nobody has to guess what to type.
+    private func tile(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: 28, weight: .light)).foregroundStyle(MalayalamTheme.accent)
+                Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).frame(height: 84)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.07)))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }.buttonStyle(.plain)
     }
 
     /// A tier-T2 action waits here: it shows exactly what will happen and only runs on OK.

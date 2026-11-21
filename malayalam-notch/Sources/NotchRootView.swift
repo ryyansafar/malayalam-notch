@@ -44,7 +44,7 @@ struct NotchRootView: View {
                 case .me: MeView()
                 case .now: NowView()
                 case .tools: ToolsView()
-                case .shelf: HStack(alignment: .top, spacing: 10) { ShelfView(); ClipboardView() }
+                case .shelf: ShelfView()
                 case .activity: ActivityView()
                 }
             }
@@ -83,7 +83,6 @@ struct NotchRootView: View {
             tabButton(.assistant, "text.bubble", "Assistant")
             tabButton(.me, "person.crop.circle", "Me")
             tabButton(.now, "music.note.house", "Now")
-            tabButton(.tools, "square.grid.2x2", "Tools")
             tabButton(.shelf, "tray.full", "Shelf")
             tabButton(.activity, "checkmark.shield", "Activity")
             Spacer()

@@ -62,31 +62,29 @@ final class ShelfModel: ObservableObject {
 struct ShelfView: View {
     @ObservedObject private var m = ShelfModel.shared
     @State private var targeted = false
+    private let cols = [GridItem(.adaptive(minimum: 112, maximum: 140), spacing: 14, alignment: .top)]
 
     var body: some View {
-        Card(title: "FILE SHELF") {
-            VStack(alignment: .leading, spacing: 7) {
-                if m.entries.isEmpty {
-                    Text("Drop files here to keep them handy.")
-                        .font(Design.Font.caption)
-                        .foregroundStyle(.white.opacity(Design.Text.secondary))
-                } else {
-                    ForEach(m.entries) { e in row(e) }
-                    Text("Files stay in place — nothing is copied or moved.")
-                        .font(Design.Font.caption)
-                        .foregroundStyle(.white.opacity(Design.Text.tertiary))
+        ZStack {
+            if m.entries.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "tray.and.arrow.down").font(.system(size: 46, weight: .light)).foregroundStyle(MalayalamTheme.accent.opacity(0.85))
+                    Text("Drop files here").font(.system(size: 20, weight: .semibold))
+                    Text("They wait on the shelf. Drag them out when you need them.").font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.secondary))
                 }
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: cols, alignment: .leading, spacing: 14) {
+                        ForEach(m.entries) { e in tile(e) }
+                    }
+                    .padding(.vertical, 4)
+                }
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .fill(MalayalamTheme.accent.opacity(targeted ? 0.1 : 0))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                        .strokeBorder(MalayalamTheme.accent.opacity(targeted ? 0.7 : 0), lineWidth: 1.2)
-                )
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(MalayalamTheme.accent.opacity(targeted ? 0.12 : 0)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(MalayalamTheme.accent.opacity(targeted ? 0.7 : 0), lineWidth: 1.2))
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             for p in providers where p.canLoadObject(ofClass: URL.self) {
                 _ = p.loadObject(ofClass: URL.self) { item, _ in
@@ -99,28 +97,24 @@ struct ShelfView: View {
         .onAppear { m.prune() }
     }
 
-    private func row(_ e: ShelfModel.Entry) -> some View {
-        HStack(spacing: 7) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: e.path))
-                .resizable().frame(width: 16, height: 16)
-            Text(e.url.lastPathComponent)
-                .font(Design.Font.caption).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 0)
-            Button {
-                m.reveal(e)
-            } label: {
-                Text("Reveal").font(Design.Font.caption)
-                    .foregroundStyle(.white.opacity(Design.Text.secondary))
-            }
-            .buttonStyle(.plain)
-            Button {
-                m.remove(e)
-            } label: {
-                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(Design.Text.tertiary))
-            }
-            .buttonStyle(.plain)
+    /// One file: its real icon, its name, click to show it in Finder, drag it anywhere, x to take it off the shelf.
+    private func tile(_ e: ShelfModel.Entry) -> some View {
+        VStack(spacing: 6) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: e.path)).resizable().frame(width: 60, height: 60)
+                .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+            Text(e.url.lastPathComponent).font(Design.Font.caption).multilineTextAlignment(.center)
+                .lineLimit(2).truncationMode(.middle).frame(maxWidth: 110)
         }
+        .padding(.vertical, 10).padding(.horizontal, 6)
+        .frame(width: 118)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
+        .overlay(alignment: .topTrailing) {
+            Button { m.remove(e) } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 16)).foregroundStyle(.white.opacity(0.55)) }
+                .buttonStyle(.plain).padding(5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture { m.reveal(e) }
         .onDrag { NSItemProvider(contentsOf: e.url) ?? NSItemProvider() }
+        .help("Click to show in Finder. Drag it anywhere.")
     }
 }
