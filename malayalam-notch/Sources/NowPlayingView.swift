@@ -128,8 +128,8 @@ struct NowPlayingView: View {
                 HStack(alignment: .center, spacing: 22) {
                     artworkView
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(m.title).font(.system(size: 20, weight: .bold)).lineLimit(1)
-                        Text(m.artist).font(.system(size: 16, weight: .medium)).foregroundStyle(MalayalamTheme.accent).lineLimit(1)
+                        Text(m.title).font(.system(size: 24, weight: .bold)).lineLimit(1)
+                        Text(m.artist).font(.system(size: 18, weight: .medium)).foregroundStyle(MalayalamTheme.accent).lineLimit(1)
                         Spacer(minLength: 4)
                         ProgressView(value: m.progress).progressViewStyle(.linear).tint(MalayalamTheme.accent).frame(height: 5)
                         HStack {
@@ -138,13 +138,14 @@ struct NowPlayingView: View {
                         HStack(spacing: 30) {
                             Spacer(minLength: 0)
                             transport("backward.fill", 20) { m.previous() }
-                            transport(m.isPlaying ? "pause.fill" : "play.fill", 32) { m.playPause() }
+                            transport(m.isPlaying ? "pause.fill" : "play.fill", 38) { m.playPause() }
                             transport("forward.fill", 20) { m.next() }
                             Spacer(minLength: 0)
                         }
                     }
-                    .frame(maxHeight: 150)
+                    .frame(height: 200)
                 }
+                .frame(maxHeight: .infinity, alignment: .center)
             }
         }
         .onAppear { m.start() }
@@ -160,8 +161,8 @@ struct NowPlayingView: View {
                 ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").foregroundStyle(.secondary) }
             }
         }
-        .frame(width: 150, height: 150)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .frame(width: 200, height: 200)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .scaleEffect(m.isPlaying ? 1 : 0.88)
         .opacity(m.isPlaying ? 1 : 0.7)
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: m.isPlaying)
