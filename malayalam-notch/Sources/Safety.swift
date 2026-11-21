@@ -32,7 +32,7 @@ enum Safety {
             return "Ring your phone at \(f.string(from: date)) and say: “\(text)”"
         case .quitApp(let name): return "Quit \(name). Unsaved work in it could be lost."
         case .whatsappReply(let c, let t, let v):
-            return "Prepare a \(v ? "voice" : "text") message to \(c) in WhatsApp: “\(t)”. You press Return to send."
+            return "Send a \(v ? "voice" : "text") message to \(c) in WhatsApp: “\(t)”. I will press Send for you."
         case .tidyApply:
             let n = AssistantModel.shared.plan.reduce(0) { $0 + $1.files.count }
             return "Move \(n) loose files from your Desktop into folders under Desktop/Organized. Undo puts them back."

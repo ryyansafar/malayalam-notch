@@ -79,6 +79,7 @@ final class WhatsAppVoice: ObservableObject {
     @Published var contact: String?              // set while there is a note to answer
     @Published var status = ""
     @Published var needsAccess = false
+    @Published var needsAccessibility = false     // pressing keys for you needs this macOS permission
     @Published var reply = ""
     @Published var asVoice = false
     private enum Step { case none, askReply, askMessage, askMode }
@@ -181,21 +182,58 @@ final class WhatsAppVoice: ObservableObject {
         comps.queryItems = items
         if !voice {
             guard let url = comps.url, NSWorkspace.shared.open(url) else { return "I couldn't open WhatsApp." }
-            return "Your message to \(name) is ready in WhatsApp. Press Return to send."
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            return await pressSend(to: name, ready: "Your message to \(name) is ready in WhatsApp. Press Return to send.")
         }
         guard let audio = await speechFile(for: text) else { return "I couldn't make the voice message. Try text instead." }
         let pb = NSPasteboard.general
         pb.clearContents(); pb.writeObjects([audio as NSURL])
         if let url = comps.url { NSWorkspace.shared.open(url) }
-        try? await Task.sleep(nanoseconds: 1_600_000_000)
-        if AXIsProcessTrusted() {
-            let src = CGEventSource(stateID: .hidSystemState)
-            let down = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true); down?.flags = .maskCommand      // ⌘V
-            let up = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: false); up?.flags = .maskCommand
-            down?.post(tap: .cghidEventTap); up?.post(tap: .cghidEventTap)
-            return "The voice message is in your chat to \(name). Press Return to send."
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        guard AXIsProcessTrusted(), await whatsAppIsFrontmost() else {
+            needsAccessibility = !AXIsProcessTrusted()
+            return "The voice message is on your clipboard and the chat is open. Press ⌘V, then Return."
         }
-        return "The voice message is on your clipboard and the chat is open. Press ⌘V, then Return."
+        key(9, command: true)                                          // ⌘V: attach the audio
+        try? await Task.sleep(nanoseconds: 1_800_000_000)             // let WhatsApp show its send preview
+        return await pressSend(to: name, ready: "The voice message is attached in your chat to \(name). Press Return to send.")
+    }
+
+    // MARK: Pressing keys for you (only after you approved the exact message on the confirm card)
+
+    private func whatsAppIsFrontmost() async -> Bool {
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: "net.whatsapp.WhatsApp").first { app.activate() }
+        for _ in 0..<20 {
+            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "net.whatsapp.WhatsApp" { return true }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return false
+    }
+
+    private func key(_ code: CGKeyCode, command: Bool = false) {
+        let src = CGEventSource(stateID: .hidSystemState)
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: down)
+            if command { e?.flags = .maskCommand }
+            e?.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Return in WhatsApp sends the message that is ready. Only runs with Accessibility allowed and WhatsApp in front.
+    private func pressSend(to name: String, ready: String) async -> String {
+        guard AXIsProcessTrusted() else {
+            needsAccessibility = true
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+            return ready + " (Allow Accessibility for Malayalam Notch and I will press Send for you.)"
+        }
+        guard await whatsAppIsFrontmost() else { return ready }
+        key(36)                                                        // Return
+        needsAccessibility = false
+        return "Sent to \(name). I pressed Return in WhatsApp."
+    }
+
+    func openAccessibilitySettings() {
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(u) }
     }
 
     /// The reply read aloud by Sarvam (Malayalam voice for Malayalam text), saved as an audio file.
@@ -236,6 +274,11 @@ struct WhatsAppReplyBar: View {
                         _ = MalayalamActions.perform(.whatsappReply(contact: name, text: t, voice: w.asVoice), source: "rule")
                     }
                 }
+            }
+        } else if w.needsAccessibility {
+            HStack(spacing: 10) {
+                Text("To press Send for you, allow Accessibility for Malayalam Notch, then try again.").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(2)
+                Chip(symbol: "lock.open", text: "Open settings") { w.openAccessibilitySettings() }
             }
         } else if w.needsAccess {
             HStack(spacing: 10) {
