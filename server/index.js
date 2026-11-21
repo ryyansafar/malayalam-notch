@@ -14,6 +14,7 @@ import { loadEnvFile, resolveConfig, readTls, lanAddresses, bannerLines, ConfigE
 import { sniffAudio, measureDuration, cutOgg, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '../shared/audio-sniff.js';
 import { resolveWatchDirs, createWatcher } from './watcher.js';
 import { createAgent, MAX_TEXT as AGENT_MAX_TEXT } from './agent.js';
+import { createCaller } from './voice-call.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_LANG = 'ml-IN';
@@ -42,7 +43,7 @@ const DEFAULTS = Object.freeze({
 });
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
-  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'], '/api/agent': ['POST'],
+  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'], '/api/agent': ['POST'], '/api/call': ['POST'], '/api/call/status': ['GET'],
   '/api/providers': ['GET'], '/api/archive': ['GET'], '/api/archive.csv': ['GET'], '/api/archive.json': ['GET'],
   '/share': ['POST'], '/share/cut': ['POST'],
 });
@@ -195,7 +196,7 @@ function shoutOptions(body, smallest) {
  * @returns {{ server: import('node:http').Server, hub: object, archive: object, listen: Function, close: Function }}
  */
 export function createServer(deps = {}) {
-  const { sarvam, smallest = null, agent = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
+  const { sarvam, smallest = null, agent = null, caller = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
   const cfg = Object.freeze({ lanAddresses: lanAddresses(), ...DEFAULTS, ...deps.config });
   const hub = H.createHub({ initial: H.initialState({ mode: cfg.mode, startedT: now() }), timers, keepAliveMs: cfg.keepAliveMs, maxClients: cfg.maxSseClients });
   const archive = archiveDep || createArchive({ log, now });
@@ -461,7 +462,9 @@ export function createServer(deps = {}) {
       if (!text) throw bad('invalid_text', 'text must be a non-empty string');
       if (text.length > AGENT_MAX_TEXT) throw bad('invalid_text', `text must be at most ${AGENT_MAX_TEXT} characters`);
       if (!agent) throw new HttpError(503, 'agent_unavailable', 'The assistant is not configured.');
-      const out = await agent.run({ text });
+      // Optional profile context: only what the user chose to share, capped, and never logged.
+      const profile = typeof body.profile === 'string' ? body.profile.trim().slice(0, 800) : '';
+      const out = await agent.run({ text, profile });
       if (!out.ok) throw new HttpError(502, out.error || 'agent_failed', 'The assistant could not answer. Try again.');
       let speech = null;
       if (body.speak === true && out.reply) {
@@ -471,6 +474,20 @@ export function createServer(deps = {}) {
         if (tts) speech = { ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', lang, provider: ttsProvider };
       }
       sendJson(res, 200, { ok: true, reply: out.reply, actions: out.actions, latencyMs: out.latencyMs ?? null, offline: out.offline === true, speech });
+    },
+    'GET /api/call/status': async (req, res) => {
+      const missing = caller ? caller.missing() : ['SARVAM_VOICE_*'];
+      sendJson(res, 200, { ok: true, configured: missing.length === 0, missing });
+    },
+    'POST /api/call': async (req, res) => {
+      // Ring the user's phone with a Malayalam reminder (Sarvam Voice Agents). The Mac app asks for an
+      // on-screen confirmation first; this route only places the call.
+      const body = await readJson(req, cfg.maxBodyBytes);
+      if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
+      if (!caller) throw new HttpError(503, 'call_unavailable', 'Phone calls are not configured.');
+      const out = await caller.call({ phone: body.phone, reminderText: body.reminderText, userName: body.userName });
+      if (!out.ok && (out.error === 'bad_phone' || out.error === 'empty_reminder')) throw bad(out.error, 'Check the phone number (+91…) and the reminder text.');
+      sendJson(res, out.ok ? 200 : 502, out);
     },
     'GET /api/archive.csv': async (req, res) => {
       send(res, 200, 'text/csv; charset=utf-8', archiveCsv(archive.list()), { 'Content-Disposition': 'attachment; filename="malayalam-notes.csv"' });
@@ -617,9 +634,10 @@ async function main() {
   const archive = createArchive({ file: path.join(ROOT, 'data', 'archive.jsonl'), log: warn });
   const watch = resolveWatchDirs({ env: process.env });
   const watchLang = H.LANGS.includes(process.env.WATCH_LANG) ? process.env.WATCH_LANG : 'en-IN';
+  const caller = createCaller({ env: process.env, log: warn });
   const agent = createAgent({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, log: warn });
   const app = createServer({
-    sarvam, smallest, agent, archive, log: warn,
+    sarvam, smallest, agent, caller, archive, log: warn,
     config: { mode: conf.mode, https: conf.https, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);

@@ -17,15 +17,15 @@ final class NotchModel: ObservableObject {
     static let shared = NotchModel()
 
     // MARK: Geometry (points)
-    let openSize = CGSize(width: 760, height: 226)
+    let openSize = CGSize(width: 880, height: 300)
     let earInset: CGFloat = 20               // room either side for the concave ears
     var closedWidth: CGFloat = 288           // real notch width + wings, set from the screen
     var closedHeight: CGFloat = 32           // real notch height, set from the screen
     var notchWidth: CGFloat = 0              // 0 on a Mac without a notch
 
     // MARK: State
-    enum Tab { case home, assistant }
-    @Published var tab: Tab = .home
+    enum Tab: CaseIterable { case voice, assistant, me, now, activity }
+    @Published var tab: Tab = .voice
     @Published private(set) var isOpen = false
     @Published var isDragging = false        // an audio file drag is in flight near the notch
     @Published var peek = false              // the cursor is close to the notch (not on it): a small hint

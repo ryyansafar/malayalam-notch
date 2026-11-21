@@ -19,6 +19,13 @@ enum MalayalamIntent: Equatable {
     case brightness(target: Int?, delta: Int)   // target 0-100, or a relative change
     case volume(target: Int?, delta: Int)
     case appearance(mode: String)        // "dark" | "light" | "toggle"
+    case callMe(text: String)            // ring the user's phone now (Sarvam Voice Agents)
+    case remindCall(text: String, at: Date)
+    case quitApp(name: String)
+    case findFiles(query: String)
+    case battery
+    case briefing
+    case remember(text: String)
     case none
 }
 
@@ -35,6 +42,22 @@ enum MalayalamIntentParser {
         guard !text.isEmpty else { return .none }
         let lower = text.lowercased()
 
+        if let m = lower.range(of: #"^(please )?remember( that)?\b"#, options: .regularExpression) {
+            let fact = text[text.index(text.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: m.upperBound))...].trimmingCharacters(in: .whitespaces)
+            if !fact.isEmpty { return .remember(text: fact) }
+        }
+        if lower.range(of: #"^(good morning|brief me|my briefing|what'?s my day|what is my day|daily briefing)"#, options: .regularExpression) != nil { return .briefing }
+        if lower.range(of: #"\b(battery|charge level)\b"#, options: .regularExpression) != nil { return .battery }
+        if let m = lower.range(of: #"^(please )?(quit|close|exit) "#, options: .regularExpression) {
+            let name = lower[m.upperBound...].replacingOccurrences(of: " app", with: "").trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty { return .quitApp(name: name.capitalized) }
+        }
+        if let m = lower.range(of: #"^(please )?find( me)?( the)?( files?| documents?| pdfs?)? "#, options: .regularExpression) {
+            let q = String(lower[m.upperBound...]).trimmingCharacters(in: .whitespaces)
+            if !q.isEmpty { return .findFiles(query: q) }
+        }
+        if lower.range(of: #"\b(ring|call|phone)\b.*\b(me|my phone)\b|\b(ring|call) my phone\b"#, options: .regularExpression) != nil,
+           let r = parseReminderCall(lower, original: text, now: now) { return r }
         if let r = parseReminder(lower, original: text, now: now) { return r }
         if let t = parseTimer(lower) { return t }
         if lower.range(of: #"\b(tidy|clean|organi[sz]e|sort)\b.*\bdesktop\b|\bdesktop\b.*\b(tidy|clean|organi[sz]e)"#, options: .regularExpression) != nil { return .tidyDesktop }
@@ -58,7 +81,7 @@ enum MalayalamIntentParser {
         guard let m = lower.range(of: #"^(remind me|set (?:a )?reminder|reminder)\b"#, options: .regularExpression) else { return nil }
         var rest = String(lower[m.upperBound...]).trimmingCharacters(in: .whitespaces)
         for f in ["to ", "about ", "that ", "for "] where rest.hasPrefix(f) { rest.removeFirst(f.count); break }
-        let (task, date) = splitWhen(rest, now: now)
+        let (task, date) = leadingWhen(rest, now: now).map { ($0.task, Optional($0.date)) } ?? splitWhen(rest, now: now)
         let cleaned = task.trimmingCharacters(in: .whitespaces)
         guard !cleaned.isEmpty else { return nil }
         // Keep the original casing of the task when it appears verbatim.
@@ -66,10 +89,36 @@ enum MalayalamIntentParser {
         return .remind(text: display, at: date ?? now.addingTimeInterval(3600))
     }
 
+    /// "call me in 2 minutes to say take your medicine" / "ring my phone to remind me to call Amma at 6 pm"
+    static func parseReminderCall(_ lower: String, original: String, now: Date) -> MalayalamIntent? {
+        var rest = lower
+        for p in [#"^(please )?(ring|call|phone) (me|my phone)( and| to)?( say| remind me)?( to| about| that)? ?"#] {
+            if let r = rest.range(of: p, options: .regularExpression) { rest = String(rest[r.upperBound...]); break }
+        }
+        let (task, date) = leadingWhen(rest, now: now).map { ($0.task, Optional($0.date)) } ?? splitWhen(rest, now: now)
+        let cleaned = task.trimmingCharacters(in: .whitespaces)
+        let display = original.range(of: cleaned, options: .caseInsensitive).map { String(original[$0]) } ?? cleaned
+        guard !cleaned.isEmpty else { return nil }
+        if let d = date { return .remindCall(text: display, at: d) }
+        return .callMe(text: display)
+    }
+
     static func parseTimer(_ lower: String) -> MalayalamIntent? {
         guard lower.contains("timer") || lower.hasPrefix("countdown") else { return nil }
         guard let secs = durationSeconds(in: lower) else { return nil }
         return .timer(seconds: secs)
+    }
+
+    /// "in 10 minutes to call Amma" / "at 6 pm to call Amma": the time comes first, then the task.
+    static func leadingWhen(_ s: String, now: Date) -> (task: String, date: Date)? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard let re = try? NSRegularExpression(pattern: #"^(in\s+(?:\d+|[a-z-]+)\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|tomorrow(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\s*(?:,|and say|and remind me to|to|that|about)?\s*(.+)$"#),
+              let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+              let wr = Range(m.range(at: 1), in: t), let tr = Range(m.range(at: 2), in: t) else { return nil }
+        let (_, date) = splitWhen(" " + String(t[wr]), now: now)
+        guard let d = date else { return nil }
+        let task = String(t[tr]).trimmingCharacters(in: .whitespaces)
+        return task.isEmpty ? nil : (task, d)
     }
 
     /// Splits "<task> in 10 minutes" / "<task> at 5 pm" / "<task> tomorrow at 9" into (task, date).

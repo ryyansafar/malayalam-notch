@@ -20,6 +20,7 @@ Devin also ran the secret scan, created the repository and pushed it. Devin also
 Written with a separate AI coding assistant under the builder's direction:
 
 - `malayalam-notch/` — the native SwiftUI notch app, written from scratch: panel and cursor poll, notch geometry and shape, the Voice and Assistant tabs, Now Playing, reminders, desktop tidy-up, the local command rules.
+- `malayalam-notch/` also holds the safety layer (risk tiers, confirm card, audit log, pause switch), the Me tab, the Activity and Now tabs, and the Sarvam Voice Agents call route (`server/voice-call.js`). The plan for these was reviewed by a second AI model (read-only; it wrote no code).
 - `sarvam/*`, `smallest/*`, `server/*` (original modules), `shared/*` (original modules), their tests, `docs/*` (architecture, design spec, findings, reference), `CONTRACT.md`, `scripts/`, `tools/dragtest/` (test rig), and the briefs in `docs/devin-tasks/`.
 
 ## What AI did not do

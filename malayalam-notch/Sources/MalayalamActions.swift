@@ -20,11 +20,50 @@ enum MalayalamActions {
     }
 
     /// Returns a short human line describing what happened ("Opened Calendar").
+    /// The single gate every action passes through: kill switch, risk tier, confirmation, audit log.
     @MainActor @discardableResult
-    static func perform(_ intent: MalayalamIntent) -> String {
+    static func perform(_ intent: MalayalamIntent, confirmed: Bool = false, source: String = "rule") -> String {
+        if case .none = intent { return "" }
+        let a = AssistantModel.shared
+        let tier = Safety.tier(of: intent)
+        if a.paused {
+            Audit.record(AuditEntry(tool: Safety.name(of: intent), tier: tier.rawValue, source: source, result: "blocked: assistant paused"))
+            return "The assistant is paused — turn it back on in Activity."
+        }
+        if tier == .outbound && !confirmed {
+            a.requestConfirm(intent, source: source)
+            return "Waiting for your OK…"
+        }
+        let result = execute(intent)
+        Audit.record(AuditEntry(tool: Safety.name(of: intent), tier: tier.rawValue, source: source, result: result))
+        return result
+    }
+
+    @MainActor
+    private static func execute(_ intent: MalayalamIntent) -> String {
         switch intent {
         case .none:
             return ""
+        case .callMe(let text):
+            AssistantModel.shared.callPhone(text, fallbackSpeak: true)
+            return "Calling your phone…"
+        case .remindCall(let text, let date):
+            AssistantModel.shared.addReminder(text, at: date, ring: true)
+            let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
+            return "I'll ring your phone at \(f.string(from: date)): \(text)"
+        case .quitApp(let name):
+            guard let app = NSWorkspace.shared.runningApplications.first(where: { ($0.localizedName ?? "").lowercased() == name.lowercased() && $0.activationPolicy == .regular }) else { return "\(name) isn't running" }
+            return app.terminate() ? "Asked \(name) to quit" : "\(name) didn't quit"
+        case .findFiles(let query):
+            return AssistantModel.shared.findFiles(query)
+        case .battery:
+            return SystemInfo.batteryLine()
+        case .briefing:
+            AssistantModel.shared.briefing()
+            return "Reading your day…"
+        case .remember(let text):
+            ProfileModel.shared.add(text, source: "typed")
+            return "I'll remember that: \(text)"
         case .remind(let text, let date):
             AssistantModel.shared.addReminder(text, at: date)
             let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short

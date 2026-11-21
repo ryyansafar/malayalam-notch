@@ -20,6 +20,12 @@ export const TOOLS = Object.freeze({
   set_brightness: { percent: 'percent' },
   set_volume: { percent: 'percent' },
   appearance: { mode: ['dark', 'light', 'toggle'] },
+  call_me: { text: 'string' },
+  quit_app: { name: 'string' },
+  find_files: { query: 'string' },
+  battery_status: {},
+  briefing: {},
+  remember: { text: 'string' },
 });
 
 const SYSTEM = `You are the assistant inside a Mac notch app used by Malayalam speakers. The user speaks or types in Malayalam or English.
@@ -36,6 +42,12 @@ Tools (use only these):
 - set_brightness {percent}: screen brightness 0-100 ("dim to the lowest" = 0, "brightest" = 100).
 - set_volume {percent}: speaker volume 0-100 (mute = 0).
 - appearance {mode}: dark, light or toggle the macOS appearance.
+- call_me {text}: ring the user's phone now and say the text (the app asks the user first).
+- quit_app {name}: quit a Mac app (the app asks the user first).
+- find_files {query}: find files by name on this Mac.
+- battery_status {}: read the battery level.
+- briefing {}: read the user's day aloud.
+- remember {text}: save a fact the user asked you to remember.
 If the user only asks a question or chats, answer in "reply" and use "actions": []. Never invent facts about contacts or the user. Never claim you did something that is not in "actions".`;
 
 const clip = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
@@ -84,7 +96,7 @@ export function parseModelJson(text) {
 export function createAgent({ apiKey, fetchImpl = globalThis.fetch, model = AGENT_MODEL, timeoutMs = 25000, log = () => {} } = {}) {
   const key = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : null;
 
-  async function run({ text }) {
+  async function run({ text, profile = '' }) {
     const q = clip(text, MAX_TEXT);
     if (!q) return { ok: false, error: 'empty', reply: '', actions: [] };
     if (!key) return { ok: true, reply: 'The assistant needs a Sarvam key to understand free-form requests.', actions: [], offline: true };
@@ -97,7 +109,7 @@ export function createAgent({ apiKey, fetchImpl = globalThis.fetch, model = AGEN
         headers: { 'api-subscription-key': key, 'content-type': 'application/json' },
         body: JSON.stringify({
           model, reasoning_effort: null, temperature: 0.1, max_tokens: 500, response_format: { type: 'json_object' },
-          messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: q }],
+          messages: [{ role: 'system', content: profile ? `${SYSTEM}\n\nAbout the user (private, shared by them; use only when relevant, never repeat it back unless asked):\n${clip(profile, 800)}` : SYSTEM }, { role: 'user', content: q }],
         }),
         signal: ctl.signal,
       });

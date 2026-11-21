@@ -45,6 +45,7 @@ final class MalayalamViewModel: NSObject, ObservableObject {
         didSet { UserDefaults.standard.set(targetLang, forKey: "malayalamTargetLang") }
     }
     @Published var muted = false
+    var profileCapture = false          // the next recording is "tell me about yourself", not a command
     @Published var ttsProvider = UserDefaults.standard.string(forKey: "malayalamTtsProvider") ?? "sarvam" {
         didSet { UserDefaults.standard.set(ttsProvider, forKey: "malayalamTtsProvider") }
     }
@@ -172,7 +173,12 @@ final class MalayalamViewModel: NSObject, ObservableObject {
             note = n
             status = ""
             phase = .idle
-            if runCommands {
+            if runCommands && profileCapture {
+                profileCapture = false
+                let fact = n.sourceText.isEmpty ? n.english : (n.english.isEmpty ? n.sourceText : "\(n.sourceText) (\(n.english))")
+                ProfileModel.shared.add(fact, source: "spoken")
+                actionLine = "Saved to Me: \(fact)"
+            } else if runCommands {
                 // Voice command: let the assistant understand and act (local rules first, then the agent).
                 AssistantModel.shared.run(n.english, heard: n.sourceText)
                 actionLine = AssistantModel.shared.feedback

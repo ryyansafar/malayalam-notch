@@ -87,12 +87,14 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     private func addContextMenu(to view: NSView) {
         let menu = NSMenu()
+        menu.addItem(withTitle: "Pause / resume the assistant", action: #selector(togglePause), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Mute / unmute", action: #selector(toggleMute), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open the desk in the browser", action: #selector(openDesk), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Malayalam Notch", action: #selector(quit), keyEquivalent: "q").target = self
         view.menu = menu
     }
+    @objc private func togglePause() { AssistantModel.shared.paused.toggle() }
     @objc private func toggleMute() { MalayalamViewModel.shared.muted.toggle() }
     @objc private func openDesk() { NSWorkspace.shared.open(URL(string: "http://localhost:3000/dashboard.html")!) }
     @objc private func quit() { NSApp.terminate(nil) }

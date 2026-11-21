@@ -38,7 +38,13 @@ struct NotchRootView: View {
                 .animation(.easeOut(duration: 0.12), value: model.isOpen)
 
             Group {
-                if model.tab == .home { MalayalamView() } else { AssistantView() }
+                switch model.tab {
+                case .voice: MalayalamView()
+                case .assistant: AssistantView()
+                case .me: MeView()
+                case .now: NowView()
+                case .activity: ActivityView()
+                }
             }
                 .padding(.horizontal, model.topRadius + 14)
                 .padding(.top, model.closedHeight + 4)
@@ -66,8 +72,11 @@ struct NotchRootView: View {
     /// Tabs on the left of the notch gap, status on the right.
     private var tabHeader: some View {
         HStack(spacing: 6) {
-            tabButton(.home, "waveform", "Voice")
+            tabButton(.voice, "waveform", "Voice")
             tabButton(.assistant, "sparkles", "Assistant")
+            tabButton(.me, "person.crop.circle", "Me")
+            tabButton(.now, "music.note.house", "Now")
+            tabButton(.activity, "checkmark.shield", "Activity")
             Spacer()
             Spacer().frame(width: model.notchWidth)
             Spacer()

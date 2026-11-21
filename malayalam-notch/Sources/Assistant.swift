@@ -18,6 +18,7 @@ struct Reminder: Codable, Identifiable, Equatable {
     var text: String
     var fire: Date
     var done = false
+    var ring = false          // also ring the user's phone (Sarvam Voice Agents); confirmed when it was created
 }
 
 @MainActor
@@ -30,6 +31,19 @@ final class AssistantModel: ObservableObject {
     @Published var feedback = ""               // result line under the command bar
     @Published var plan: [OrganizePlanItem] = []
     @Published var canUndo = false
+    @Published var audit: [AuditEntry] = []
+    @Published var foundFiles: [String] = []
+    @Published var briefingText = ""
+    @Published var pending: PendingAction?
+    @Published var paused = UserDefaults.standard.bool(forKey: "assistantPaused") {
+        didSet { UserDefaults.standard.set(paused, forKey: "assistantPaused"); if paused { pending = nil } }
+    }
+    @Published var phone = UserDefaults.standard.string(forKey: "assistantPhone") ?? "" {
+        didSet { UserDefaults.standard.set(phone, forKey: "assistantPhone") }
+    }
+    @Published var userName = UserDefaults.standard.string(forKey: "assistantName") ?? "" {
+        didSet { UserDefaults.standard.set(userName, forKey: "assistantName") }
+    }
     @Published var now = Date()                // ticks every second while a reminder is near, for the live countdown
 
     private var timer: Timer?
@@ -47,15 +61,15 @@ final class AssistantModel: ObservableObject {
         guard timer == nil else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+            MainActor.assumeIsolated { self?.tick(); if let p = self?.pending, Date() > p.expires { self?.cancelPending(reason: "timed out") } }
         }
     }
 
     // MARK: Reminders and timers
     var upcoming: [Reminder] { reminders.filter { !$0.done }.sorted { $0.fire < $1.fire } }
 
-    func addReminder(_ text: String, at date: Date) {
-        reminders.append(Reminder(text: text, fire: date)); persist()
+    func addReminder(_ text: String, at date: Date, ring: Bool = false) {
+        reminders.append(Reminder(text: text, fire: date, ring: ring)); persist()
         start()
     }
     func remove(_ r: Reminder) { reminders.removeAll { $0.id == r.id }; persist() }
@@ -92,7 +106,7 @@ final class AssistantModel: ObservableObject {
         NotchModel.shared.pinnedUntil = Date().addingTimeInterval(12)
         NotchModel.shared.tab = .assistant
         NotchModel.shared.setOpen(true)
-        Task { await speak("Reminder. \(r.text)") }
+        if r.ring { callPhone(r.text, fallbackSpeak: true) } else { Task { await speak("Reminder. \(r.text)") } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
             if self?.banner == "Reminder: \(r.text)" { self?.banner = "" }
         }
@@ -146,7 +160,9 @@ final class AssistantModel: ObservableObject {
         var req = URLRequest(url: server.appendingPathComponent("api/agent"))
         req.httpMethod = "POST"; req.timeoutInterval = 35
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "speak": true, "ttsProvider": MalayalamViewModel.shared.ttsProvider] as [String: Any])
+        var body: [String: Any] = ["text": text, "speak": true, "ttsProvider": MalayalamViewModel.shared.ttsProvider]
+        if let ctx = ProfileModel.shared.cloudString(), !ctx.isEmpty { body["profile"] = ctx }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             feedback = "I couldn't reach the assistant — is the server running?"
@@ -156,7 +172,7 @@ final class AssistantModel: ObservableObject {
         var lines: [String] = []
         for a in (j["actions"] as? [[String: Any]]) ?? [] {
             guard let tool = a["tool"] as? String, let intent = Self.intent(tool: tool, args: (a["args"] as? [String: Any]) ?? [:]) else { continue }
-            let line = MalayalamActions.perform(intent)
+            let line = MalayalamActions.perform(intent, source: "agent")
             if !line.isEmpty { lines.append(line) }
         }
         feedback = [reply, lines.joined(separator: " · ")].filter { !$0.isEmpty }.joined(separator: "\n")
@@ -183,6 +199,12 @@ final class AssistantModel: ObservableObject {
         case "set_brightness": return num("percent").map { .brightness(target: $0, delta: 0) }
         case "set_volume": return num("percent").map { .volume(target: $0, delta: 0) }
         case "appearance": return (args["mode"] as? String).map { .appearance(mode: $0) }
+        case "call_me": return (args["text"] as? String).map { .callMe(text: $0) }
+        case "quit_app": return (args["name"] as? String).map { .quitApp(name: $0) }
+        case "find_files": return (args["query"] as? String).map { .findFiles(query: $0) }
+        case "battery_status": return .battery
+        case "briefing": return .briefing
+        case "remember": return (args["text"] as? String).map { .remember(text: $0) }
         default: return nil
         }
     }
@@ -313,10 +335,23 @@ struct AssistantView: View {
             .padding(.horizontal, 10).frame(height: 34)
             .background(Capsule().fill(Color.white.opacity(0.09)))
 
-            Text(a.feedback.isEmpty ? "Try “remind me to call Amma in 10 minutes”, “open WhatsApp”, “tidy my desktop” or “set a timer for 5 minutes”." : a.feedback)
-                .font(.system(size: 10.5, weight: a.feedback.isEmpty ? .regular : .semibold))
-                .foregroundStyle(a.feedback.isEmpty ? Color.secondary : MalayalamTheme.accent)
-                .lineLimit(3)
+            if let p = a.pending {
+                confirmCard(p)
+            } else {
+                Text(a.feedback.isEmpty ? "Try “remind me to call Amma in 10 minutes”, “ring my phone in 2 minutes to take my tablet”, “open WhatsApp”, “find my resume” or “tidy my desktop”." : a.feedback)
+                    .font(.system(size: 10.5, weight: a.feedback.isEmpty ? .regular : .semibold))
+                    .foregroundStyle(a.feedback.isEmpty ? Color.secondary : MalayalamTheme.accent)
+                    .lineLimit(4)
+                if !a.foundFiles.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(a.foundFiles.prefix(4), id: \.self) { path in
+                            Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } label: {
+                                Text((path as NSString).lastPathComponent).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
 
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -325,6 +360,32 @@ struct AssistantView: View {
                 pill("doc.on.clipboard", "Translate clipboard") { a.translateClipboard() }
             }
         }
+    }
+
+    /// A tier-T2 action waits here: it shows exactly what will happen and only runs on OK.
+    private func confirmCard(_ p: PendingAction) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
+                Text("Confirm").font(.system(size: 11, weight: .bold)).foregroundStyle(.orange)
+                Spacer(minLength: 0)
+                Text("asks \(p.source == "agent" ? "— chosen by the assistant" : "— your command")").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+            }
+            Text(Safety.describe(p.intent)).font(.system(size: 12, weight: .medium)).lineLimit(3)
+            HStack(spacing: 8) {
+                Button { a.confirmPending() } label: {
+                    Text("Do it").font(.system(size: 11.5, weight: .bold)).foregroundStyle(.black).padding(.horizontal, 16).frame(height: 28)
+                        .background(Capsule().fill(MalayalamTheme.accent))
+                }.buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                Button { a.cancelPending() } label: {
+                    Text("Cancel").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white).padding(.horizontal, 14).frame(height: 28)
+                        .background(Capsule().fill(Color.white.opacity(0.14)))
+                }.buttonStyle(.plain).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.orange.opacity(0.4), lineWidth: 1))
     }
 
     private func appButton(_ name: String) -> some View {
