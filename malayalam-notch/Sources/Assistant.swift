@@ -131,6 +131,12 @@ final class AssistantModel: ObservableObject {
         player = try? AVAudioPlayer(data: audio); player?.play()
     }
 
+    /// Speak and wait until it has finished, so the next step (listening) never hears the assistant itself.
+    func speakAndWait(_ text: String, lang: String = "en-IN") async {
+        await speak(text, lang: lang)
+        if let p = player, !MalayalamViewModel.shared.muted { try? await Task.sleep(nanoseconds: UInt64((p.duration + 0.3) * 1_000_000_000)) }
+    }
+
     // MARK: Commands
     /// Run a command typed in the bar. Malayalam goes straight to the agent (it understands it
     /// natively); English tries the local rules first and falls back to the agent.
@@ -160,16 +166,16 @@ final class AssistantModel: ObservableObject {
         }
         feedback = "Thinking…"
         let original = (heard?.isEmpty == false) ? heard! : english
-        Task { await askAgent(original) }
+        Task { await askAgent(original, spoken: heard != nil) }   // replies are read aloud only when you spoke the request
     }
 
     // MARK: Agent (Sarvam chat model via the local server)
-    func askAgent(_ text: String, screen: String? = nil) async {
+    func askAgent(_ text: String, screen: String? = nil, spoken: Bool = false) async {
         guard !paused else { feedback = "The assistant is paused — turn it back on in Activity."; return }
         var req = URLRequest(url: server.appendingPathComponent("api/agent"))
         req.httpMethod = "POST"; req.timeoutInterval = 35
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["text": text, "speak": true, "ttsProvider": MalayalamViewModel.shared.ttsProvider]
+        var body: [String: Any] = ["text": text, "speak": spoken, "ttsProvider": MalayalamViewModel.shared.ttsProvider]
         if let ctx = ProfileModel.shared.cloudString(), !ctx.isEmpty { body["profile"] = ctx }
         if let screen { body["screen"] = String(screen.prefix(6000)) }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)

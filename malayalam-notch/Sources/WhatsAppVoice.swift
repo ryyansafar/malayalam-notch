@@ -47,6 +47,8 @@ final class WhatsAppVoice: ObservableObject {
     @Published var needsAccess = false
     @Published var reply = ""
     @Published var asVoice = false
+    private enum Step { case none, askReply, askMessage, askMode }
+    private var step: Step = .none
 
     private let server = URL(string: "http://localhost:\(ProcessInfo.processInfo.environment["MALAYALAM_PORT"] ?? "3000")")!
 
@@ -74,9 +76,59 @@ final class WhatsAppVoice: ObservableObject {
             NotchModel.shared.pinnedUntil = Date().addingTimeInterval(60)
             NotchModel.shared.setOpen(true)
             MalayalamViewModel.shared.handleDrop(url: copy)
+            Task { await self.beginDialogueWhenRead() }
         }
         if contact == nil { NotchModel.shared.pinnedUntil = Date().addingTimeInterval(15); NotchModel.shared.setOpen(true) }
         return status
+    }
+
+    // MARK: The conversation: it asks, waits for your voice, then acts on the answer
+
+    /// Once the voice note has been read, ask whether to reply and listen for the answer.
+    private func beginDialogueWhenRead() async {
+        let vm = MalayalamViewModel.shared
+        for _ in 0..<160 {     // up to ~40 s for the reading to finish
+            if vm.note != nil, vm.phase == .idle { break }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        guard let name = contact, vm.note != nil else { return }
+        step = .askReply
+        await ask("Do you want to reply to \(name)?")
+    }
+
+    private func ask(_ question: String) async {
+        status = question
+        await AssistantModel.shared.speakAndWait(question)
+        guard step != .none else { return }
+        MalayalamViewModel.shared.startRecording()
+        NotchModel.shared.recording = true
+    }
+
+    func dialogueEnded() { if step != .none { step = .none; status = "I stopped listening. Tap the mic to continue." } }
+
+    /// An answer heard from the microphone. Returns true when it belonged to the conversation.
+    func handleSpoken(english: String, source: String) -> Bool {
+        guard step != .none, let name = contact else { return false }
+        let said = english.lowercased()
+        switch step {
+        case .askReply:
+            let yes = ["yes", "yeah", "yep", "sure", "ok", "okay", "please", "reply", "do it", "go ahead"].contains { said.contains($0) } || source.contains("അതെ") || source.contains("ശരി") || source.contains("വേണം")
+            if yes { step = .askMessage; Task { await ask("Okay. What should I say?") } }
+            else { step = .none; status = "Okay, no reply."; Task { await AssistantModel.shared.speak("Okay.") } }
+        case .askMessage:
+            let text = (source.isEmpty ? english : source).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { Task { await ask("I didn't catch that. What should I say?") }; return true }
+            reply = text; step = .askMode
+            Task { await ask("Should I send it as text or as a voice message?") }
+        case .askMode:
+            asVoice = said.contains("voice") || said.contains("audio") || said.contains("speak")
+            step = .none
+            status = "Please check the message on screen."
+            Task { await AssistantModel.shared.speak("Please check the message on screen.") }
+            _ = MalayalamActions.perform(.whatsappReply(contact: name, text: reply, voice: asVoice), source: "rule")
+        case .none: break
+        }
+        return true
     }
 
     func openFullDiskAccessSettings() {

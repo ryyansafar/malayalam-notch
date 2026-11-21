@@ -52,15 +52,8 @@ enum MalayalamIntentParser {
            lower.range(of: #"\b(look|see|read|analy[sz]e|what'?s|what is|explain|summari[sz]e|help|check)\b"#, options: .regularExpression) != nil {
             return .lookAtScreen(question: text)
         }
-        // "open the latest voice message from Amma on WhatsApp"
-        for pattern in [#"\b(?:latest|last|newest|recent)\b.*?\b(?:voice\s*(?:message|note)s?|audio|voice)\b.*?\b(?:from|of|by)\s+([a-z][a-z .'-]*?)(?:\s+(?:on|in|from)\s+whatsapp)?\s*$"#,
-                        #"\b(?:open|play|listen to|read|get)\s+([a-z][a-z .'-]*?)(?:'s|’s)\s+(?:latest|last|newest|recent)\s+(?:voice\s*(?:message|note)|audio)"#] {
-            if let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
-               let r = Range(m.range(at: 1), in: lower) {
-                let who = lower[r].trimmingCharacters(in: .whitespaces)
-                if !who.isEmpty { return .whatsappVoice(contact: who.capitalized) }
-            }
-        }
+        // "open the latest voice message from Amma on WhatsApp" (many phrasings)
+        if let who = voiceNoteContact(lower) { return .whatsappVoice(contact: who) }
         if let m = lower.range(of: #"^(please )?remember( that)?\b"#, options: .regularExpression) {
             let fact = text[text.index(text.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: m.upperBound))...].trimmingCharacters(in: .whitespaces)
             if !fact.isEmpty { return .remember(text: fact) }
@@ -109,6 +102,28 @@ enum MalayalamIntentParser {
     }
 
     /// "call me in 2 minutes to say take your medicine" / "ring my phone to remind me to call Amma at 6 pm"
+    /// Who is the user asking about? Saved People win (so "Adriel sent me" works); otherwise the name after from/of/by/'s,
+    /// cut at the first extra clause (" on whatsapp", " and ...", a comma).
+    static func voiceNoteContact(_ lower: String) -> String? {
+        guard lower.range(of: #"\b(voice\s*(message|note)s?|audio|voice)\b"#, options: .regularExpression) != nil,
+              lower.range(of: #"\b(latest|last|newest|recent|new)\b"#, options: .regularExpression) != nil else { return nil }
+        let saved = (UserDefaults.standard.dictionary(forKey: "malayalamContacts") as? [String: String])?.keys.sorted { $0.count > $1.count } ?? []
+        for n in saved where lower.contains(n.lowercased()) { return n }
+        let patterns = [#"(?:from|of|by)\s+([a-z][a-z .'-]*)"#, #"([a-z][a-z .'-]*?)(?:'s|’s)\s+(?:latest|last|newest|recent|new)"#, #"(?:message|note|audio)\s+([a-z][a-z .'-]*?)\s+sent\b"#]
+        for pattern in patterns {
+            guard let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+                  let r = Range(m.range(at: 1), in: lower) else { continue }
+            var name = String(lower[r])
+            for cut in [" on whatsapp", " in whatsapp", " from whatsapp", " and ", ",", " sent ", " please"] {
+                if let c = name.range(of: cut) { name = String(name[..<c.lowerBound]) }
+            }
+            let stop: Set<String> = ["whatsapp", "open", "play", "the", "a", "my", "me", "listen", "to", "get"]
+            let words = name.split(separator: " ").map(String.init).filter { !stop.contains($0) }
+            if !words.isEmpty, words.count <= 3 { return words.joined(separator: " ").capitalized }
+        }
+        return nil
+    }
+
     static func parseReminderCall(_ lower: String, original: String, now: Date) -> MalayalamIntent? {
         var rest = lower
         for p in [#"^(please )?(ring|call|phone) (me|my phone)( and| to)?( say| remind me)?( to| about| that)? ?"#] {

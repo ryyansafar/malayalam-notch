@@ -111,19 +111,56 @@ final class MalayalamViewModel: NSObject, ObservableObject {
         ]
         do {
             let r = try AVAudioRecorder(url: url, settings: settings)
+            r.isMeteringEnabled = true
             r.record(forDuration: 25)
             recorder = r; recordURL = url
             phase = .recording; status = "Listening…"; actionLine = ""
+            watchForSilence(r)
         } catch {
             status = "Couldn't start recording"
         }
     }
 
+    // MARK: Stop by itself when you stop talking
+    private var meterTimer: Timer?
+    private var heardSpeech = false
+    private var lastLoud = Date()
+    private var recStart = Date()
+
+    /// Listens to the level: once speech has been heard, about 1.4 s of quiet ends the recording. If nothing is
+    /// said within 7 s it gives up. Either way nobody has to hold or release anything.
+    private func watchForSilence(_ r: AVAudioRecorder) {
+        heardSpeech = false; lastLoud = Date(); recStart = Date()
+        meterTimer?.invalidate()
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.phase == .recording else { return }
+                r.updateMeters()
+                let db = r.averagePower(forChannel: 0)
+                let now = Date()
+                if db > -38 { self.heardSpeech = true; self.lastLoud = now }
+                if self.heardSpeech, now.timeIntervalSince(self.lastLoud) > 1.4 { self.stopRecording() }
+                else if !self.heardSpeech, now.timeIntervalSince(self.recStart) > 7 { self.cancelRecording("I didn't hear anything. Tap the mic and try again.") }
+            }
+        }
+    }
+
+    private func cancelRecording(_ message: String) {
+        meterTimer?.invalidate(); meterTimer = nil
+        recorder?.stop(); recorder = nil
+        if let u = recordURL { try? FileManager.default.removeItem(at: u) }
+        NotchModel.shared.recording = false
+        phase = .idle; status = message
+        WhatsAppVoice.shared.dialogueEnded()
+    }
+
     func stopRecording() {
         guard phase == .recording, let r = recorder, let url = recordURL else { return }
+        meterTimer?.invalidate(); meterTimer = nil
+        NotchModel.shared.recording = false
         r.stop(); recorder = nil
         guard let data = try? Data(contentsOf: url), data.count > 2000 else {
-            phase = .idle; status = "Too short — hold the mic while you speak"; return
+            phase = .idle; status = "Too short. Tap the mic and speak."; WhatsAppVoice.shared.dialogueEnded(); return
         }
         try? FileManager.default.removeItem(at: url)
         phase = .translating; status = "Understanding…"
@@ -179,6 +216,8 @@ final class MalayalamViewModel: NSObject, ObservableObject {
                 let fact = n.sourceText.isEmpty ? n.english : (n.english.isEmpty ? n.sourceText : "\(n.sourceText) (\(n.english))")
                 ProfileModel.shared.add(fact, source: "spoken")
                 actionLine = "Saved to Me: \(fact)"
+            } else if runCommands, WhatsAppVoice.shared.handleSpoken(english: n.english, source: n.sourceText) {
+                actionLine = ""   // an answer in a conversation (reply to a voice note), not a command
             } else if runCommands {
                 // Voice command: let the assistant understand and act (local rules first, then the agent).
                 AssistantModel.shared.run(n.english, heard: n.sourceText)
@@ -276,7 +315,7 @@ struct MalayalamView: View {
             Image(systemName: recording ? "waveform" : "mic.fill")
                 .font(.system(size: 20, weight: .semibold))
                 .symbolEffect(.variableColor.iterative, isActive: recording)
-            Text(recording ? "Listening…" : "Hold to speak")
+            Text(recording ? "Listening… tap to stop" : "Tap to speak")
                 .font(.system(size: 15, weight: .semibold))
         }
         .foregroundStyle(recording ? Color.black : .white)
@@ -285,11 +324,10 @@ struct MalayalamView: View {
         .scaleEffect(recording ? 1.04 : 1)
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: recording)
         .contentShape(Capsule())
-        .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
-            if pressing { vm.startRecording() } else { vm.stopRecording() }
-            notch.recording = pressing
-        }, perform: {})
-        .help("Hold and say a command, e.g. “open Calendar” or “message Amma on WhatsApp saying I’m late”")
+        .onTapGesture {
+            if vm.phase == .recording { vm.stopRecording() } else { vm.startRecording(); notch.recording = true }
+        }
+        .help("Tap, then say a command, e.g. “open Calendar” or “message Amma on WhatsApp saying I’m late”")
     }
 
     // MARK: Translation area — Malayalam, romanised, English, actions
