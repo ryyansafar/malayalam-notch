@@ -72,7 +72,7 @@ struct MeView: View {
         HStack(alignment: .top, spacing: 10) {
             card("TELL ME ABOUT YOU") { tellArea }.frame(maxWidth: .infinity)
             card("WHAT I KNOW") { knownArea }.frame(width: 330)
-            card("WHAT THE CLOUD SEES") { cloudArea }.frame(width: 250)
+            card("WHAT GETS SENT ONLINE") { cloudArea }.frame(width: 250)
         }
     }
 
@@ -155,7 +155,7 @@ struct MeView: View {
 
     private var cloudArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Toggle(isOn: $p.shareWithCloud) { Text("Give the assistant these facts").font(.system(size: 11.5, weight: .semibold)) }
+            Toggle(isOn: $p.shareWithCloud) { Text("Let the assistant use these").font(.system(size: 11.5, weight: .semibold)) }
                 .toggleStyle(.switch).tint(MalayalamTheme.accent)
             Text(p.cloudString() ?? (p.shareWithCloud ? "Nothing is shared." : "Sharing is off. The assistant only sees what you type to it."))
                 .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(5)

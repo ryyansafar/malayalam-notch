@@ -167,10 +167,11 @@ final class MalayalamViewModel: NSObject, ObservableObject {
             n.origin = origin
             if let b64 = json["ttsAudioBase64"] as? String { n.ttsAudio = Data(base64Encoded: b64) }
             if let t = json["tts"] as? [String: Any], let p = t["provider"] as? String {
-                n.voice = p == "smallest" ? "smallest.ai" : "Sarvam"
+                n.voice = p == "smallest" ? "Voice 2" : "Voice 1"
                 if let ms = t["latencyMs"] as? Int { n.voice += " · \(ms) ms" }
             }
             note = n
+            FirstSteps.shared.mark(.read)
             status = ""
             phase = .idle
             if runCommands && profileCapture {
@@ -187,7 +188,7 @@ final class MalayalamViewModel: NSObject, ObservableObject {
             }
         } catch {
             phase = .idle
-            status = "Couldn't reach the translator — is the server running on port 3000?"
+            status = "The translator isn't running yet. Start it, then try again."
         }
     }
 
@@ -265,7 +266,7 @@ struct MalayalamView: View {
                         .symbolEffect(.bounce, value: targeted)
                     Text(targeted ? "Release to translate" : "Drop a voice note")
                         .font(.system(size: 11.5, weight: .semibold))
-                    Text("WhatsApp .opus · .m4a · .mp3")
+                    Text("WhatsApp voice notes")
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 .foregroundStyle(targeted ? MalayalamTheme.accent : .white)
@@ -303,9 +304,7 @@ struct MalayalamView: View {
     @ViewBuilder private var badges: some View {
         if let n = vm.note {
             HStack(spacing: 5) {
-                badge(n.origin == "mic" ? "VOICE" : "VOICE NOTE")
-                if !n.language.isEmpty { badge(n.language.uppercased()) }
-                if !n.voice.isEmpty { badge(n.voice.uppercased()) }
+                if !n.language.isEmpty { badge(n.language.hasPrefix("ml") ? "Malayalam" : n.language) }
             }
         }
     }
@@ -323,9 +322,14 @@ struct MalayalamView: View {
                 }
                 Text(n.english).font(.system(size: 13.5, weight: .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(2)
             } else {
-                Text("Malayalam, in your notch").font(.system(size: 15, weight: .semibold))
-                Text("Drop a WhatsApp voice note to read it in Malayalam, romanised and English — or hold the mic and say “open Calendar” or “message Amma on WhatsApp saying I’m late”.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(4)
+                Text("Understand family voice notes").font(Design.Font.title)
+                Text("Drop a WhatsApp voice note here. You'll see it in Malayalam, in English letters, and in English.")
+                    .font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(3)
+                if let sample = SampleNote.url {
+                    Chip(symbol: "play.fill", text: "Try a sample", primary: true) { vm.handleDrop(url: sample) }
+                }
+                Spacer(minLength: 4)
+                FirstStepsView()
             }
             Spacer(minLength: 0)
             if !vm.status.isEmpty {
@@ -350,7 +354,7 @@ struct MalayalamView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "person.wave.2").font(.system(size: 11))
-                    Text(vm.ttsProvider == "smallest" ? "smallest" : "Sarvam").font(.system(size: 10.5, weight: .semibold))
+                    Text(vm.ttsProvider == "smallest" ? "Voice 2" : "Voice 1").font(.system(size: 10.5, weight: .semibold))
                 }
                 .foregroundStyle(.white).padding(.horizontal, 9).frame(height: 26)
                 .background(Capsule().fill(Color.white.opacity(0.12)))

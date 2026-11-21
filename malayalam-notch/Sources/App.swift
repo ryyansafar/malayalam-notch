@@ -35,6 +35,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         NowPlayingModel.shared.start()
         AssistantModel.shared.start()
         ToolsModel.shared.start()
+        buildStatusItem()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
         model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
         // A click anywhere outside the island (the menu bar, the area behind the notch, any other app)
@@ -111,6 +112,24 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc private func toggleMute() { MalayalamViewModel.shared.muted.toggle() }
     @objc private func openDesk() { NSWorkspace.shared.open(URL(string: "http://localhost:3000/dashboard.html")!) }
     @objc private func quit() { NSApp.terminate(nil) }
+
+    // MARK: Menu bar icon: a second, obvious way in
+    private var statusItem: NSStatusItem?
+    private func buildStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Malayalam Notch")
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Open the notch", action: #selector(openFromMenu), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Pause or resume the assistant", action: #selector(togglePause), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Quit Malayalam Notch", action: #selector(quit), keyEquivalent: "q").target = self
+        item.menu = menu
+        statusItem = item
+    }
+    @objc private func openFromMenu() {
+        model.pinnedUntil = Date().addingTimeInterval(8)
+        model.setOpen(true)
+    }
 
     // MARK: Cursor poll
     private var hoverSince: Date?

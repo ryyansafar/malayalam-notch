@@ -83,7 +83,7 @@ struct NotchRootView: View {
             Spacer()
             Spacer().frame(width: model.notchWidth)
             Spacer()
-            Text("\(model.notesToday) today").font(.system(size: 10.5, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
+            Text("\(model.notesToday) notes today").font(.system(size: 10.5, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
         }
         .padding(.horizontal, model.topRadius + 16)
         .frame(height: model.closedHeight)

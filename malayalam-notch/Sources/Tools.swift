@@ -141,7 +141,7 @@ struct ToolsView: View {
                 if !c.roman.isEmpty { Text(c.roman).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2) }
                 Text(c.en).font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.primary)).lineLimit(3)
             } else {
-                Text(t.copyWatch ? "Copy Malayalam text anywhere." : "Off. When on, copied Malayalam text goes to Sarvam. Passwords are never read.")
+                Text(t.copyWatch ? "Copy Malayalam text anywhere." : "Off. When on, copied Malayalam text is sent online to translate. Passwords are never read.")
                     .font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(3)
             }
             Spacer(minLength: 0)
@@ -156,7 +156,7 @@ struct ToolsView: View {
             Text(w.en).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white.opacity(Design.Text.primary))
             Spacer(minLength: 0)
             HStack(spacing: 8) {
-                smallPill("speaker.wave.2.fill", "Hear it") { Task { await AssistantModel.shared.speak(w.ml, lang: "ml-IN") } }
+                smallPill("speaker.wave.2.fill", "Hear it") { FirstSteps.shared.mark(.word); Task { await AssistantModel.shared.speak(w.ml, lang: "ml-IN") } }
                 smallPill("arrow.right", "Next") { withAnimation(.snappy) { t.wordOffset += 1 } }
             }
         }

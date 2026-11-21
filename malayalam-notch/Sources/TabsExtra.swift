@@ -101,8 +101,8 @@ struct ActivityView: View {
             ForEach(a.audit.prefix(7)) { e in
                 HStack(spacing: 7) {
                     Text(e.ts, style: .time).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(.tertiary).frame(width: 50, alignment: .leading)
-                    Text(e.tool).font(.system(size: 10.5, weight: .semibold)).frame(width: 96, alignment: .leading).lineLimit(1)
-                    Text(e.tier.prefix(2)).font(.system(size: 8.5, weight: .bold))
+                    Text(e.tool.replacingOccurrences(of: "_", with: " ").capitalized).font(.system(size: 10.5, weight: .semibold)).frame(width: 96, alignment: .leading).lineLimit(1)
+                    Text(e.tier.hasPrefix("T2") ? "Asked" : (e.tier.hasPrefix("T1") ? "Change" : "Look")).font(.system(size: 9.5, weight: .semibold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Capsule().fill(e.tier.hasPrefix("T2") ? MalayalamTheme.accent.opacity(0.3) : Color.white.opacity(0.1)))
                     Text(e.result).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
@@ -132,7 +132,7 @@ struct ActivityView: View {
     private var phoneArea: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 12, weight: .semibold))
-            Text("Reminders and your day are read aloud in Sarvam's voice. No phone number needed.")
+            Text("Reminders and your day are read aloud. No phone number needed.")
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
             if callReady == true {
                 HStack(spacing: 8) {

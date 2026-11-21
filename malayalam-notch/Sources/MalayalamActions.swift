@@ -69,6 +69,7 @@ enum MalayalamActions {
             return "I'll remember that: \(text)"
         case .remind(let text, let date):
             AssistantModel.shared.addReminder(text, at: date)
+            FirstSteps.shared.mark(.remind)
             let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
             return "Reminder set for \(f.string(from: date)): \(text)"
         case .timer(let seconds):

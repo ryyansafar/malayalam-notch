@@ -171,7 +171,7 @@ final class AssistantModel: ObservableObject {
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            feedback = "I couldn't reach the assistant — is the server running?"
+            feedback = "The assistant isn't running yet. Start it, then try again."
             return
         }
         let reply = (j["reply"] as? String) ?? ""
