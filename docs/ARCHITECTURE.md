@@ -15,8 +15,10 @@ Honest status: this is a pre-event spike. The call table is placeholder (UNVERIF
 | `smallest/client.js` | `createSmallestClient({ apiKey, mode, cacheDir })` with `speak()`, `speakMalayalam()` (Lightning v3.1, WAV) and `transcribe()` (Pulse). Same modes, cache folder and retry rule as the Sarvam client; cache files are prefixed `smallest-speak-` and `smallest-transcribe-`. Optional. |
 | `sarvam/classifier.js` | `createMeaningClassifier({ apiKey, mode, cacheDir })` with `classify({ text })` giving `{ meaning or null, confidence: 'model', source, latencyMs, model }`. Hosted chat model `sarvam-105b`, strict JSON schema, 6 s budget, cache files prefixed `classify-`. Optional, off by default. |
 | `sarvam/record-fixtures.js` | CLI that records live answers into `sarvam/cache` for offline REPLAY. |
+| `server/archive.js` | `createArchive({ file, maxEntries })`: capped, searchable archive of every heard call, persisted as JSON lines under `data/` (git-ignored). Audio bytes and keys are never stored; IO errors are logged and swallowed so archiving can never fail a shout. |
 | `server/index.js` | HTTP(S) server: routes, validation, static files, the shout flow. Everything external is injected into `createServer`. |
 | `server/hub.js` | SSE hub, immutable session state, the spoken phrase table (`PHRASES`), validation of inbound bodies. |
+| `shared/audio-mime.js` | `mimeFromName(filename, reported)`: audio mime from the file extension when the browser reports none (WhatsApp `.opus`). Browser and Node. |
 | `server/qr.js` | QR SVG (qrcode-generator), landing page and message page HTML. |
 | `server/env.js` | `.env` parser, config validation, startup banner. Never prints values. |
 | `public/phone.*`, `public/dashboard.*` | Phone page and laptop dashboard. Built separately. |
@@ -72,7 +74,8 @@ Sarvam modes: `live` always calls the API and caches each success. `replay` read
 | `GET /api/state` | Current public state as JSON. |
 | `POST /api/phone` | Phone hello and heartbeat: `{ userAgent?, simulated? }`. |
 | `POST /api/stroke` | `{ events: [{ type: 'stroke', t, rateSpm, count }], sentAt? }`, at most 200 per batch. |
-| `POST /api/shout` | `{ text, targetLang }` or `{ audioBase64, mime?, targetLang }`. `targetLang` is one of `en-IN, hi-IN, bn-IN, od-IN, ta-IN`. Optional: `ttsProvider` (`sarvam` default, or `smallest`) and `coachPlayback` (boolean); bad values get a 400. |
+| `POST /api/shout` | `{ text, targetLang }` or `{ audioBase64, mime?, targetLang }`. `targetLang` is one of `en-IN, hi-IN, bn-IN, od-IN, ta-IN`. Optional: `ttsProvider` (`sarvam` default, or `smallest`) and `coachPlayback` (boolean); bad values get a 400. Optional `source` (`voice_note`, `text`, `mic`; defaults to `mic` for audio and `text` for text) and `filename` (a file name, no path separators, at most 200 characters) are used only for the archive entry. |
+| `GET /api/archive` | `{ ok, entries }` newest first; `?q=` searches the translation, meaning, filename and language. Persisted in `data/archive.jsonl`, capped at 500 entries. An entry is written when a call is heard (`verdict: null`) and updated when the trial is judged. |
 | `GET /api/providers` | `{ providers: { sarvam: { configured, mode }, smallest: { configured, mode } }, ttsProviders, defaultTtsProvider, coachPlayback, secondEar }`, plus `modelFallback: true` only when the model fallback is active. Booleans and mode names only, never keys. |
 
 Errors are JSON `{ ok: false, error: { code, message } }`: 400 validation, 404, 405, 413 (body over 8 MB), 429 (a shout is already in flight), 502 (Sarvam call failed), 503 (`no_replay_available`, or QR unavailable). No stack traces leave the process.

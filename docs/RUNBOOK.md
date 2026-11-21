@@ -45,6 +45,18 @@ Replay matches on the exact input: the same audio bytes, or the same typed text.
 
 Do not put hand-written or synthetic files in `sarvam/cache`. Everything there is shown to an audience as a recorded Sarvam answer.
 
+## Voice-note inbox
+
+A WhatsApp voice note can be used as a rowing call.
+
+1. In WhatsApp, long-press the voice message, tap **Share**, and save the file (WhatsApp voice notes are `.opus`).
+2. On the laptop dashboard, drop the file on the **Voice-note inbox** panel, or click the zone to pick a file. Accepted: `.opus`, `.ogg`, `.m4a`, `.mp3`, `.wav`, up to **5 MB** and **30 seconds** — the Sarvam REST speech-to-text limit.
+3. The file is sent to `POST /api/shout` as base64 with the dashboard's selected target language, then follows the normal path (translate, match, speak, judge). The browser mime of a `.opus` file is often empty or `audio/ogg`; the dashboard infers it from the extension when needed.
+
+Transcription is **Sarvam cloud speech-to-text**: the audio leaves the laptop; it is not local.
+
+Every heard call is filed in the archive — `GET /api/archive` (newest first, `?q=` searches the translation, meaning, filename and language) and the dashboard **Call archive** panel. Entries keep the source (`voice_note`, `mic`, `text`), the original file name, the detected language, the translated text, the matched meaning and confidence, and the obedience verdict once the trial is judged. They persist in `data/archive.jsonl` (git-ignored, created on demand, capped at 500 entries, oldest dropped). Audio bytes are never stored, so "Replay as call" re-sends the translated text, not the audio.
+
 ## smallest.ai extras (optional)
 
 Everything here is off unless a request or the environment asks for it; the default demo path is Sarvam only. `GET /api/providers` shows what is configured (booleans and modes, never keys).

@@ -36,6 +36,16 @@ npm start
 - No key or no network: `SARVAM_MODE=replay npm start` plays recorded answers with a REPLAY badge. `npm run record` records fixtures ahead of time (needs a key).
 - Demo steps: see [DEMO.md](DEMO.md).
 
+## Voice-note inbox
+
+A coach can also send the call as a WhatsApp voice note instead of shouting at the laptop mic.
+
+1. In WhatsApp, long-press the voice message, choose **Share**, and save the file (`.opus`) somewhere you can reach it.
+2. On the dashboard, drop the file onto the **Voice-note inbox** panel (or click it to choose a file). `.opus`, `.ogg`, `.m4a`, `.mp3` and `.wav` are accepted; files over 5 MB or longer than 30 s are refused, because that is the Sarvam REST speech-to-text limit.
+3. The note goes through the same path as a shout: transcribed to English by **Sarvam cloud speech-to-text** (not local — the audio leaves the laptop), matched to a meaning, spoken to the rower and judged on stroke rate.
+
+Every heard call — voice note, microphone or typed — is kept in the **Call archive** panel: searchable by translation, meaning or language, with the original file name and the obedience verdict filled in when the trial is judged. Audio bytes are never stored. The archive persists between restarts in `data/archive.jsonl` (git-ignored, capped at 500 entries). "Replay as call" re-sends the stored English text through the shout path; it does not replay the audio.
+
 ## Environment variables
 
 Names and defaults only; `.env` is git-ignored and values are never printed or logged.
