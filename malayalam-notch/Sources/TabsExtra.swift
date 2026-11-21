@@ -90,7 +90,7 @@ struct ActivityView: View {
         HStack(alignment: .top, spacing: 10) {
             card("WHAT I DID") { logArea }.frame(maxWidth: .infinity)
             card("CONTROL") { controlArea }.frame(width: 250)
-            card("PHONE CALLS") { phoneArea }.frame(width: 280)
+            card("VOICE REMINDERS") { phoneArea }.frame(width: 280)
         }
         .task { await loadStatus() }
     }
@@ -135,23 +135,23 @@ struct ActivityView: View {
 
     private var phoneArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                Image(systemName: "phone.fill").font(.system(size: 11)).foregroundStyle(MalayalamTheme.accent)
-                TextField("+91 your number", text: $a.phone).textFieldStyle(.plain).font(.system(size: 12.5))
-            }
-            .padding(.horizontal, 10).frame(height: 30).background(Capsule().fill(Color.white.opacity(0.09)))
             HStack(spacing: 6) {
-                Circle().fill(callReady == true ? Color.green : Color.orange).frame(width: 7, height: 7)
-                Text(callReady == true ? "Phone line ready" : (callReady == nil ? "Checking…" : "Not set up yet")).font(.system(size: 11, weight: .semibold))
+                Circle().fill(Color.green).frame(width: 7, height: 7)
+                Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 11, weight: .semibold))
             }
-            if callReady == false {
-                Text("Add the Sarvam Voice Agent ids to .env (SARVAM_VOICE_*). Until then reminders are spoken on this Mac.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(4)
-            } else {
-                Text("Say “ring my phone in 2 minutes to take my tablet”. I ask you first, then call in Malayalam.").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
+            Text("Reminders and your day are read aloud in Sarvam's voice. No phone number needed.")
+                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
+            if callReady == true {
+                HStack(spacing: 8) {
+                    Image(systemName: "phone.fill").font(.system(size: 11)).foregroundStyle(MalayalamTheme.accent)
+                    TextField("+91 optional phone", text: $a.phone).textFieldStyle(.plain).font(.system(size: 12.5))
+                }
+                .padding(.horizontal, 10).frame(height: 30).background(Capsule().fill(Color.white.opacity(0.09)))
             }
             Spacer(minLength: 0)
-            pill("phone.arrow.up.right", "Ring me now (test)") { _ = MalayalamActions.perform(.callMe(text: "ഇത് ഒരു പരീക്ഷണ കോൾ ആണ്"), source: "rule") }
+            pill("speaker.wave.2.fill", "Speak a test reminder") {
+                Task { await a.speak("ഇത് ഒരു പരീക്ഷണ ഓർമ്മപ്പെടുത്തൽ ആണ്", lang: "ml-IN") }
+            }
         }
     }
 
