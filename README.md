@@ -42,6 +42,46 @@ A Malayalam-first assistant that lives in the notch:
 
 Transcription and translation are **Sarvam cloud** services, and the card says so. The API reports a language code — a language, never a dialect claim. Machine translation is not certified translation.
 
+## Why it matters
+
+Millions of families keep in touch through Malayalam voice notes. A child who grew up elsewhere, a friend learning the language, or anyone who simply cannot play audio right now is left guessing what was said. This app puts the answer in the one place that is always in view, the notch: drop a voice note and read it in Malayalam script, in English letters and in English within about a second and a half, hear it spoken back, and reply in your own voice or text. The same notch is a small, careful assistant that asks before it does anything that reaches a person.
+
+## Built with
+
+| Layer | What | Used for |
+|---|---|---|
+| **Sarvam AI** | Saaras `saaras:v4` | Speech to text in three modes at once: Malayalam script, English letters, English |
+| | Bulbul (`bulbul:v3`) | Spoken answers, reminders and the daily briefing, including Malayalam voice |
+| | `sarvam-105b` chat model | Turns a spoken or typed request into a reply plus actions from a fixed, validated tool list; explains dropped files and screen text |
+| **smallest.ai** | Lightning | A second voice, switchable live, to compare quality and speed |
+| **macOS, on device** | SwiftUI + AppKit | The notch island, its morphing shape, drag and drop, menu bar icon |
+| | Vision, PDFKit, AVFoundation | Reads pictures, PDFs and audio/video details on the Mac; only extracted text is ever sent |
+| **Server** | Node 20 (one dependency, a QR code library) | Holds the keys, validates every request, local only for the assistant and call routes |
+| **Built with AI agents** | Devin, plus a separate coding assistant | See [AI_USAGE.md](AI_USAGE.md) for exactly who built what |
+
+```mermaid
+flowchart LR
+  A[Voice note, file, typed or spoken request] --> B[SwiftUI notch app]
+  B -->|text, audio| C[Local Node server]
+  C --> D[Sarvam: Saaras, Bulbul, sarvam-105b]
+  C --> E[smallest.ai: Lightning]
+  D --> C
+  E --> C
+  C --> B
+  B --> F[Confirm card for anything risky]
+  F --> G[Action: reminder, open app, WhatsApp reply]
+```
+
+## A one-minute tour for reviewers
+
+1. Hover the notch: the island opens (only the physical notch area reacts).
+2. Drop a `demo-samples/` voice note: script, English letters and English appear; press play to hear it.
+3. Drag any file at the notch and shake it twice: **Analyze** (a plain explanation) or **Clipboard** (copy, then it appears on the Shelf).
+4. Assistant tab: tap a tile, or type "remind me tomorrow at 6 am to call Amma"; a confirm card appears before anything risky.
+5. Activity tab: every action taken is listed, and one switch pauses the assistant.
+
+More detail: [REVIEWING.md](REVIEWING.md), and the honest limits are listed below under *Honest limits*.
+
 ## How to run
 
 ```
