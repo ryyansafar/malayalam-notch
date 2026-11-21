@@ -205,7 +205,7 @@ struct DropZones: View {
     @State private var right = false
     var body: some View {
         HStack(spacing: Design.Space.m) {
-            zone("sparkles", "Analyze", "Drop here to understand it. Pictures, PDFs, text and folders, in any language.", highlight: left)
+            zone("doc.text.magnifyingglass", "Analyze", "Drop here to understand it. Pictures, PDFs, text and folders, in any language.", highlight: left)
                 .onDrop(of: [.fileURL], isTargeted: $left) { p in DropModel.load(p, action: .analyze); return true }
             zone("doc.on.doc", "Clipboard", "Drop here to copy it. Then paste it or drag it anywhere else.", highlight: right)
                 .onDrop(of: [.fileURL], isTargeted: $right) { p in DropModel.load(p, action: .clipboard); return true }
@@ -292,9 +292,9 @@ struct WaitingChip: View {
     var body: some View {
         if let f = d.waiting.first {
             HStack(spacing: 5) {
-                Image(systemName: "doc.on.clipboard").font(.system(size: 11))
+                Image(systemName: "doc.on.clipboard").font(.system(size: 13))
                 Text("\(f.lastPathComponent) waiting").font(Design.Font.caption).lineLimit(1)
-                Button { d.clearWaiting() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }.buttonStyle(.plain)
+                Button { d.clearWaiting() } label: { Image(systemName: "xmark").font(.system(size: 12, weight: .bold)) }.buttonStyle(.plain)
             }
             .foregroundStyle(MalayalamTheme.accent).padding(.horizontal, 9).frame(height: 24)
             .background(Capsule().fill(MalayalamTheme.accent.opacity(0.15)))

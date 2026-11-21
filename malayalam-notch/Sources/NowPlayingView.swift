@@ -119,17 +119,17 @@ struct NowPlayingView: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
                     Image(systemName: "music.note").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                    Text("Nothing playing").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    Text("Nothing playing").font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)
                 }
-                Text("Play something in Music or Spotify.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                Text("Play something in Music or Spotify.").font(.system(size: 12.5)).foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             } else {
                 HStack(spacing: 10) {
                     artworkView
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(m.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                        Text(m.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                        Text(m.app.uppercased()).font(.system(size: 8.5, weight: .semibold)).tracking(1.1)
+                        Text(m.title).font(.system(size: 15.5, weight: .semibold)).lineLimit(1)
+                        Text(m.artist).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(m.app.uppercased()).font(.system(size: 12, weight: .semibold)).tracking(1.1)
                             .foregroundStyle(MalayalamTheme.accent.opacity(0.85))
                     }
                     Spacer(minLength: 0)

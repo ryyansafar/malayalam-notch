@@ -10,17 +10,22 @@ enum Design {
     enum Space { static let xs: CGFloat = 4, s: CGFloat = 8, m: CGFloat = 12, l: CGFloat = 16 }
     enum Radius { static let chip: CGFloat = 10, card: CGFloat = 16 }
     enum Font {
-        static let title = SwiftUI.Font.system(size: 15, weight: .semibold)
-        static let body = SwiftUI.Font.system(size: 13)
-        static let caption = SwiftUI.Font.system(size: 11)
-        static let ml = SwiftUI.Font.system(size: 16, weight: .medium)       // Malayalam: pair with .lineSpacing(5)
+        static let title = SwiftUI.Font.system(size: 17, weight: .semibold)
+        static let body = SwiftUI.Font.system(size: 14.5)
+        static let caption = SwiftUI.Font.system(size: 12.5)
+        static let ml = SwiftUI.Font.system(size: 19, weight: .medium)       // Malayalam: pair with .lineSpacing(5)
         static let hero = SwiftUI.Font.system(size: 30, weight: .semibold)
     }
-    enum Text { static let primary = 0.92, secondary = 0.62, tertiary = 0.38 }
+    enum Text { static let primary = 0.95, secondary = 0.74, tertiary = 0.55 }
     static let fill = Color.white.opacity(0.05)
 
     /// "COPY → TRANSLATE" -> "Copy → translate"
-    static func sentence(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst().lowercased() }
+    static func sentence(_ s: String) -> String {
+        let keep = ["i": "I", "mac": "Mac", "sarvam": "Sarvam", "ai": "AI"]
+        let words = s.lowercased().split(separator: " ", omittingEmptySubsequences: false).map { keep[String($0)] ?? String($0) }
+        let joined = words.joined(separator: " ")
+        return joined.prefix(1).uppercased() + joined.dropFirst()
+    }
 }
 
 /// The one card every tab uses.
@@ -36,7 +41,7 @@ struct Card<C: View>: View {
         }
         .padding(Design.Space.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Design.fill))
+        .background(Color.clear)
     }
 }
 

@@ -112,7 +112,7 @@ struct ToolsView: View {
     @ObservedObject private var t = ToolsModel.shared
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 16) {
             card("COPY → TRANSLATE") { copyArea }.frame(maxWidth: .infinity)
             card("WORD OF THE DAY") { wordArea }.frame(width: 250)
             card("FOCUS") { focusArea }.frame(width: 230)
@@ -127,18 +127,18 @@ struct ToolsView: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(Color.clear)
     }
 
     private var copyArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Toggle(isOn: $t.copyWatch) { Text("Translate Malayalam when I copy it").font(.system(size: 11.5, weight: .semibold)) }
+            Toggle(isOn: $t.copyWatch) { Text("Translate Malayalam when I copy it").font(.system(size: 13.5, weight: .semibold)) }
                 .toggleStyle(.switch).tint(MalayalamTheme.accent)
             if t.copyBusy {
-                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Translating…").font(.system(size: 11)).foregroundStyle(.secondary) }
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Translating…").font(.system(size: 13)).foregroundStyle(.secondary) }
             } else if let c = t.copied {
                 Text(c.ml).font(Design.Font.ml).lineSpacing(5).lineLimit(3)
-                if !c.roman.isEmpty { Text(c.roman).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2) }
+                if !c.roman.isEmpty { Text(c.roman).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2) }
                 Text(c.en).font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.primary)).lineLimit(3)
             } else {
                 Text(t.copyWatch ? "Copy Malayalam text anywhere." : "Off. When on, copied Malayalam text is sent online to translate. Passwords are never read.")
@@ -152,8 +152,8 @@ struct ToolsView: View {
         let w = t.word
         return VStack(alignment: .leading, spacing: 4) {
             Text(w.ml).font(Design.Font.hero).lineSpacing(5)
-            Text(w.roman).font(.system(size: 13)).foregroundStyle(.secondary)
-            Text(w.en).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white.opacity(Design.Text.primary))
+            Text(w.roman).font(.system(size: 15.5)).foregroundStyle(.secondary)
+            Text(w.en).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(.white.opacity(Design.Text.primary))
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 smallPill("speaker.wave.2.fill", "Hear it") { FirstSteps.shared.mark(.word); Task { await AssistantModel.shared.speak(w.ml, lang: "ml-IN") } }
@@ -173,7 +173,7 @@ struct ToolsView: View {
                     .rotationEffect(.degrees(-90)).animation(.linear(duration: 1), value: p)
                 VStack(spacing: 0) {
                     Text(on ? t.focusText : "25:00").font(.system(size: 17, weight: .semibold).monospacedDigit())
-                    Text(t.focus == .rest ? "break" : (on ? "focus" : "ready")).font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text(t.focus == .rest ? "break" : (on ? "focus" : "ready")).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
             .frame(width: 92, height: 92).frame(maxWidth: .infinity)
@@ -186,8 +186,8 @@ struct ToolsView: View {
     private func smallPill(_ symbol: String, _ text: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
-                Text(text).font(.system(size: 10.5, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+                Text(text).font(.system(size: 12.5, weight: .semibold))
             }
             .foregroundStyle(.white).padding(.horizontal, 10).frame(height: 26)
             .background(Capsule().fill(Color.white.opacity(0.12)))

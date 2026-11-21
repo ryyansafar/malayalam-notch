@@ -313,10 +313,10 @@ struct AssistantView: View {
     private let apps = ["WhatsApp", "Calendar", "Notes", "Reminders", "Safari", "Messages"]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 16) {
             card("ASSISTANT") { commandArea }.frame(maxWidth: .infinity)
-            card("REMINDERS") { remindersArea }.frame(width: 232)
-            card("DESKTOP") { desktopArea }.frame(width: 214)
+            card("REMINDERS") { remindersArea }.frame(width: 168)
+            card("DESKTOP") { desktopArea }.frame(width: 168)
         }
         .onAppear { a.start() }
     }
@@ -328,16 +328,16 @@ struct AssistantView: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(Color.clear)
     }
 
     // Command bar, quick launch, clipboard
     private var commandArea: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold)).foregroundStyle(MalayalamTheme.accent)
+                Image(systemName: "text.cursor").font(.system(size: 14, weight: .semibold)).foregroundStyle(MalayalamTheme.accent)
                 TextField("Ask me anything — English or Malayalam", text: $a.commandText)
-                    .textFieldStyle(.plain).font(.system(size: 12.5))
+                    .textFieldStyle(.plain).font(.system(size: 15))
                     .focused($focused)
                     .onSubmit { a.submit(a.commandText) }
                 Button { a.submit(a.commandText) } label: {
@@ -351,17 +351,17 @@ struct AssistantView: View {
                 confirmCard(p)
             } else {
                 Group {
-                    if a.feedback.isEmpty { Text("Try “remind me to call Amma in 10 minutes”, “set a timer for 5 minutes”, “open WhatsApp”, “find my resume” or “tidy my desktop”.") }
+                    if a.feedback.isEmpty { Text("Try: “remind me to call Amma in 10 minutes”") }
                     else { TypewriterText(text: a.feedback) }
                 }
-                    .font(.system(size: 10.5, weight: a.feedback.isEmpty ? .regular : .semibold))
+                    .font(.system(size: 12.5, weight: a.feedback.isEmpty ? .regular : .semibold))
                     .foregroundStyle(a.feedback.isEmpty ? Color.secondary : MalayalamTheme.accent)
                     .lineLimit(4)
                 if !a.foundFiles.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(a.foundFiles.prefix(4), id: \.self) { path in
                             Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } label: {
-                                Text((path as NSString).lastPathComponent).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                                Text((path as NSString).lastPathComponent).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
                             }.buttonStyle(.plain)
                         }
                     }
@@ -382,18 +382,18 @@ struct AssistantView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
-                Text("Confirm").font(.system(size: 11, weight: .bold)).foregroundStyle(.orange)
+                Text("Confirm").font(.system(size: 13, weight: .bold)).foregroundStyle(.orange)
                 Spacer(minLength: 0)
-                Text("asks \(p.source == "agent" ? "— chosen by the assistant" : "— your command")").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+                Text("asks \(p.source == "agent" ? "— chosen by the assistant" : "— your command")").font(.system(size: 12)).foregroundStyle(.tertiary)
             }
-            Text(Safety.describe(p.intent)).font(.system(size: 12, weight: .medium)).lineLimit(3)
+            Text(Safety.describe(p.intent)).font(.system(size: 14, weight: .medium)).lineLimit(3)
             HStack(spacing: 8) {
                 Button { a.confirmPending() } label: {
-                    Text("Do it").font(.system(size: 11.5, weight: .bold)).foregroundStyle(.black).padding(.horizontal, 16).frame(height: 28)
+                    Text("Do it").font(.system(size: 13.5, weight: .bold)).foregroundStyle(.black).padding(.horizontal, 16).frame(height: 28)
                         .background(Capsule().fill(MalayalamTheme.accent))
                 }.buttonStyle(.plain).keyboardShortcut(.defaultAction)
                 Button { a.cancelPending() } label: {
-                    Text("Cancel").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white).padding(.horizontal, 14).frame(height: 28)
+                    Text("Cancel").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).padding(.horizontal, 14).frame(height: 28)
                         .background(Capsule().fill(Color.white.opacity(0.14)))
                 }.buttonStyle(.plain).keyboardShortcut(.cancelAction)
             }
@@ -412,7 +412,7 @@ struct AssistantView: View {
                 if let url { Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable() }
                 else { Image(systemName: "app.dashed").resizable().padding(5).foregroundStyle(.secondary) }
             }
-            .frame(width: 28, height: 28)
+            .frame(width: 38, height: 38)
         }
         .buttonStyle(.plain).help("Open \(name)").disabled(url == nil).opacity(url == nil ? 0.35 : 1)
     }
@@ -421,20 +421,20 @@ struct AssistantView: View {
     private var remindersArea: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !a.banner.isEmpty {
-                Text(a.banner).font(.system(size: 11, weight: .semibold)).foregroundStyle(.black)
+                Text(a.banner).font(.system(size: 13, weight: .semibold)).foregroundStyle(.black)
                     .padding(.horizontal, 8).padding(.vertical, 4).background(Capsule().fill(MalayalamTheme.accent))
             }
             if a.upcoming.isEmpty {
                 Spacer(minLength: 0)
-                Text("No reminders").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                Text("Say “remind me to … in 10 minutes”. I’ll speak it out loud.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                Image(systemName: "bell").font(.system(size: 34, weight: .light)).foregroundStyle(MalayalamTheme.accent.opacity(0.8)).frame(maxWidth: .infinity)
+                Text("No reminders").font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
                 ForEach(a.upcoming.prefix(3)) { r in
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(r.text).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
-                            Text(r.fire, style: .time).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                            Text(r.text).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                            Text(r.fire, style: .time).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         Button { a.remove(r) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
@@ -449,18 +449,19 @@ struct AssistantView: View {
     private var desktopArea: some View {
         VStack(alignment: .leading, spacing: 6) {
             if a.plan.isEmpty {
-                Text("Tidy the desktop").font(.system(size: 12, weight: .semibold))
-                Text("Sorts loose files into folders. You see the plan first, and Undo puts everything back.")
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(3)
+                Spacer(minLength: 0)
+                Image(systemName: "folder").font(.system(size: 34, weight: .light)).foregroundStyle(MalayalamTheme.accent.opacity(0.8)).frame(maxWidth: .infinity)
+                Text("Tidy desktop").font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
             } else {
                 ForEach(a.plan.prefix(4)) { p in
-                    HStack { Text(p.folder).font(.system(size: 11, weight: .medium)); Spacer(); Text("\(p.files.count)").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary) }
+                    HStack { Text(p.folder).font(.system(size: 13, weight: .medium)); Spacer(); Text("\(p.files.count)").font(.system(size: 13).monospacedDigit()).foregroundStyle(.secondary) }
                 }
             }
             Spacer(minLength: 0)
             HStack(spacing: 6) {
                 if a.plan.isEmpty { pill("magnifyingglass", "Scan") { a.scanDesktop() } }
-                else { pill("sparkles", "Tidy…") { _ = MalayalamActions.perform(.tidyApply, source: "rule") } }
+                else { pill("folder", "Tidy…") { _ = MalayalamActions.perform(.tidyApply, source: "rule") } }
                 if a.canUndo { pill("arrow.uturn.backward", "Undo") { a.undoTidy() } }
             }
         }
@@ -469,10 +470,10 @@ struct AssistantView: View {
     private func pill(_ symbol: String, _ text: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold))
-                Text(text).font(.system(size: 10.5, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 12.5, weight: .semibold))
+                Text(text).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
             }
-            .foregroundStyle(.white).padding(.horizontal, 10).frame(height: 26)
+            .foregroundStyle(.white).padding(.horizontal, 12).frame(height: 30)
             .background(Capsule().fill(Color.white.opacity(0.12)))
         }.buttonStyle(.plain)
     }

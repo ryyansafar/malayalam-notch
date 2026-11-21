@@ -69,7 +69,7 @@ struct MeView: View {
     @State private var draft = ""
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 16) {
             card("TELL ME ABOUT YOU") { tellArea }.frame(maxWidth: .infinity)
             card("WHAT I KNOW") { knownArea }.frame(width: 330)
             card("WHAT GETS SENT ONLINE") { cloudArea }.frame(width: 250)
@@ -83,30 +83,29 @@ struct MeView: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(Color.clear)
     }
 
     private var tellArea: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Your name").font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
-                TextField("e.g. Ryyan", text: $a.userName).textFieldStyle(.plain).font(.system(size: 12.5))
+                Text("Your name").font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                TextField("e.g. Ryyan", text: $a.userName).textFieldStyle(.plain).font(.system(size: 15))
                     .padding(.horizontal, 10).frame(height: 28).background(Capsule().fill(Color.white.opacity(0.09)))
             }
             HStack(spacing: 8) {
-                TextField("Tell me something to remember — Malayalam or English", text: $draft)
-                    .textFieldStyle(.plain).font(.system(size: 12.5))
+                TextField("Add something about you", text: $draft)
+                    .textFieldStyle(.plain).font(.system(size: 15))
                     .onSubmit(save)
                 Button(action: save) { Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundStyle(MalayalamTheme.accent) }
                     .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 10).frame(height: 34).background(Capsule().fill(Color.white.opacity(0.09)))
-            Text("Say it instead: hold the mic and tell me about yourself.").font(.system(size: 10.5)).foregroundStyle(.secondary)
+            Text("Type it, or hold the mic and say it in Malayalam or English.").font(.system(size: 12.5)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 micButton
-                Text("e.g. “My mother is Amma. I live in Alappuzha. I take my tablet at 8.”")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(2)
+
             }
         }
     }
@@ -116,8 +115,8 @@ struct MeView: View {
     private var micButton: some View {
         let rec = vm.phase == .recording && vm.profileCapture
         return HStack(spacing: 6) {
-            Image(systemName: rec ? "waveform" : "mic.fill").font(.system(size: 11, weight: .bold))
-            Text(rec ? "Listening…" : "Hold to tell me").font(.system(size: 11, weight: .semibold))
+            Image(systemName: rec ? "waveform" : "mic.fill").font(.system(size: 13, weight: .bold))
+            Text(rec ? "Listening…" : "Hold to speak").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize()
         }
         .foregroundStyle(rec ? Color.black : .white).padding(.horizontal, 12).frame(height: 30)
         .background(Capsule().fill(rec ? MalayalamTheme.accent : Color.white.opacity(0.12)))
@@ -131,36 +130,36 @@ struct MeView: View {
         VStack(alignment: .leading, spacing: 5) {
             if p.facts.isEmpty {
                 Spacer(minLength: 0)
-                Text("Nothing yet").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                Text("Say “remember that …” anywhere, or add facts on the left.").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                Text("Nothing yet").font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)
+                Text("Say “remember that …” anywhere, or add facts on the left.").font(.system(size: 12.5)).foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
             } else {
                 ForEach(p.facts.prefix(5)) { f in
                     HStack(spacing: 7) {
                         Button { p.toggleShare(f) } label: {
-                            Image(systemName: f.share ? "cloud.fill" : "lock.fill").font(.system(size: 10))
+                            Image(systemName: f.share ? "cloud.fill" : "lock.fill").font(.system(size: 12))
                                 .foregroundStyle(f.share ? MalayalamTheme.accent : Color.secondary)
                         }.buttonStyle(.plain).help(f.share ? "Shared with the assistant (cloud). Click to keep it on this Mac only." : "Only on this Mac. Click to share.")
-                        Text(f.text).font(.system(size: 11.5)).lineLimit(1)
+                        Text(f.text).font(.system(size: 13.5)).lineLimit(1)
                         Spacer(minLength: 0)
                         Button { p.remove(f) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
                     }
                 }
-                if p.facts.count > 5 { Text("+\(p.facts.count - 5) more").font(.system(size: 10)).foregroundStyle(.tertiary) }
+                if p.facts.count > 5 { Text("+\(p.facts.count - 5) more").font(.system(size: 12)).foregroundStyle(.tertiary) }
                 Spacer(minLength: 0)
-                Button("Forget everything") { p.forgetAll() }.buttonStyle(.plain).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.orange)
+                Button("Forget everything") { p.forgetAll() }.buttonStyle(.plain).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.orange)
             }
         }
     }
 
     private var cloudArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Toggle(isOn: $p.shareWithCloud) { Text("Let the assistant use these").font(.system(size: 11.5, weight: .semibold)) }
+            Toggle(isOn: $p.shareWithCloud) { Text("Let the assistant use these").font(.system(size: 13.5, weight: .semibold)) }
                 .toggleStyle(.switch).tint(MalayalamTheme.accent)
             Text(p.cloudString() ?? (p.shareWithCloud ? "Nothing is shared." : "Sharing is off. The assistant only sees what you type to it."))
-                .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(5)
+                .font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(5)
             Spacer(minLength: 0)
-            Text("Stored only on this Mac. Files, clipboard and contacts are never sent.").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+            Text("Stored only on this Mac. Files, clipboard and contacts are never sent.").font(.system(size: 12)).foregroundStyle(.tertiary)
         }
     }
 }

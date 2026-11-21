@@ -13,14 +13,14 @@ private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> 
     }
     .padding(.horizontal, 11).padding(.vertical, 9)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+    .background(Color.clear)
 }
 
 private func pill(_ symbol: String, _ text: String, action: @escaping () -> Void) -> some View {
     Button(action: action) {
         HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 10.5, weight: .semibold))
-            Text(text).font(.system(size: 10.5, weight: .semibold))
+            Image(systemName: symbol).font(.system(size: 12.5, weight: .semibold))
+            Text(text).font(.system(size: 12.5, weight: .semibold))
         }
         .foregroundStyle(.white).padding(.horizontal, 10).frame(height: 26)
         .background(Capsule().fill(Color.white.opacity(0.12)))
@@ -34,7 +34,7 @@ struct NowView: View {
     private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 16) {
             card("NOW PLAYING") { NowPlayingView() }.frame(width: 290)
             card("THIS MAC") { systemArea }.frame(width: 240)
             card("YOUR DAY") { dayArea }.frame(maxWidth: .infinity)
@@ -55,25 +55,25 @@ struct NowView: View {
 
     private func stat(_ symbol: String, _ label: String, _ value: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(MalayalamTheme.accent).frame(width: 18)
-            Text(label).font(.system(size: 11.5)).foregroundStyle(.secondary)
+            Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(MalayalamTheme.accent).frame(width: 18)
+            Text(label).font(.system(size: 13.5)).foregroundStyle(.secondary)
             Spacer(minLength: 0)
-            Text(value).font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+            Text(value).font(.system(size: 13.5, weight: .semibold).monospacedDigit())
         }
     }
 
     private var dayArea: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if a.upcoming.isEmpty { Text("No reminders today").font(.system(size: 12)).foregroundStyle(.secondary) }
+            if a.upcoming.isEmpty { Text("No reminders today").font(.system(size: 14)).foregroundStyle(.secondary) }
             ForEach(a.upcoming.prefix(3)) { r in
                 HStack(spacing: 8) {
-                    Image(systemName: r.ring ? "phone.fill" : "bell.fill").font(.system(size: 10)).foregroundStyle(MalayalamTheme.accent)
-                    Text(r.text).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                    Image(systemName: r.ring ? "phone.fill" : "bell.fill").font(.system(size: 12)).foregroundStyle(MalayalamTheme.accent)
+                    Text(r.text).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
                     Spacer(minLength: 0)
-                    Text(r.fire, style: .time).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.secondary)
+                    Text(r.fire, style: .time).font(.system(size: 12.5).monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
-            if !a.briefingText.isEmpty { Text(a.briefingText).font(.system(size: 10.5)).foregroundStyle(.tertiary).lineLimit(3) }
+            if !a.briefingText.isEmpty { Text(a.briefingText).font(.system(size: 12.5)).foregroundStyle(.tertiary).lineLimit(3) }
             Spacer(minLength: 0)
             pill("speaker.wave.2.fill", "Read my day in Malayalam") { a.briefing() }
         }
@@ -87,7 +87,7 @@ struct ActivityView: View {
     @State private var missing: [String] = []
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 16) {
             card("WHAT I DID") { logArea }.frame(maxWidth: .infinity)
             card("CONTROL") { controlArea }.frame(width: 250)
             card("VOICE REMINDERS") { phoneArea }.frame(width: 280)
@@ -100,12 +100,12 @@ struct ActivityView: View {
             if a.audit.isEmpty { Text("Nothing yet. Every action is listed here.").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)) }
             ForEach(a.audit.prefix(7)) { e in
                 HStack(spacing: 7) {
-                    Text(e.ts, style: .time).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(.tertiary).frame(width: 50, alignment: .leading)
-                    Text(e.tool.replacingOccurrences(of: "_", with: " ").capitalized).font(.system(size: 10.5, weight: .semibold)).frame(width: 96, alignment: .leading).lineLimit(1)
-                    Text(e.tier.hasPrefix("T2") ? "Asked" : (e.tier.hasPrefix("T1") ? "Change" : "Look")).font(.system(size: 9.5, weight: .semibold))
+                    Text(e.ts, style: .time).font(.system(size: 12).monospacedDigit()).foregroundStyle(.tertiary).frame(width: 50, alignment: .leading)
+                    Text(Design.sentence(e.tool.replacingOccurrences(of: "_", with: " "))).font(.system(size: 12.5, weight: .semibold)).frame(width: 150, alignment: .leading).lineLimit(1)
+                    Text(e.tier.hasPrefix("T2") ? "Asked" : (e.tier.hasPrefix("T1") ? "Change" : "Look")).font(.system(size: 12, weight: .semibold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Capsule().fill(e.tier.hasPrefix("T2") ? MalayalamTheme.accent.opacity(0.3) : Color.white.opacity(0.1)))
-                    Text(e.result).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(e.result).font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 0)
                 }
             }
@@ -118,26 +118,26 @@ struct ActivityView: View {
             Button { a.paused.toggle() } label: {
                 HStack(spacing: 7) {
                     Image(systemName: a.paused ? "play.fill" : "pause.fill")
-                    Text(a.paused ? "Assistant paused — resume" : "Pause the assistant").font(.system(size: 11.5, weight: .semibold))
+                    Text(a.paused ? "Assistant paused — resume" : "Pause the assistant").font(.system(size: 13.5, weight: .semibold))
                 }
                 .foregroundStyle(a.paused ? Color.black : .white.opacity(Design.Text.primary)).frame(maxWidth: .infinity, minHeight: 36)
                 .background(Capsule().fill(a.paused ? MalayalamTheme.accent : Color.white.opacity(0.1)))
             }.buttonStyle(.plain)
             Text("Asks before anything that reaches a person or can lose work.").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary))
             Spacer(minLength: 0)
-            Text("No shell, no deleting files, nothing leaves this Mac unless you ask.").font(.system(size: 9.5)).foregroundStyle(.tertiary)
+            Text("No shell, no deleting files, nothing leaves this Mac unless you ask.").font(.system(size: 12)).foregroundStyle(.tertiary)
         }
     }
 
     private var phoneArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 12, weight: .semibold))
+            Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 14, weight: .semibold))
             Text("Reminders and your day are read aloud. No phone number needed.")
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
+                .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(3)
             if callReady == true {
                 HStack(spacing: 8) {
-                    Image(systemName: "phone.fill").font(.system(size: 11)).foregroundStyle(MalayalamTheme.accent)
-                    TextField("+91 optional phone", text: $a.phone).textFieldStyle(.plain).font(.system(size: 12.5))
+                    Image(systemName: "phone.fill").font(.system(size: 13)).foregroundStyle(MalayalamTheme.accent)
+                    TextField("+91 optional phone", text: $a.phone).textFieldStyle(.plain).font(.system(size: 15))
                 }
                 .padding(.horizontal, 10).frame(height: 30).background(Capsule().fill(Color.white.opacity(0.09)))
             }

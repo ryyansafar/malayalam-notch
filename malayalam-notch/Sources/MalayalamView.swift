@@ -217,10 +217,10 @@ struct MalayalamView: View {
     @State private var targeted = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            area("VOICE") { voiceArea }.frame(width: 176)
+        HStack(alignment: .top, spacing: 16) {
+            area("VOICE") { voiceArea }.frame(width: 214)
             area("TRANSLATION", trailing: { badges }) { resultArea }.frame(maxWidth: .infinity)
-            area("NOW PLAYING") { NowPlayingView() }.frame(width: 214)
+            area("NOW PLAYING") { NowPlayingView() }.frame(width: 190)
         }
         .animation(.smooth(duration: 0.3), value: vm.phase)
         .animation(.smooth(duration: 0.3), value: vm.note)
@@ -244,7 +244,7 @@ struct MalayalamView: View {
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
+        .background(Color.clear)
     }
 
     // MARK: Voice area — drop a note, hold to speak
@@ -255,18 +255,16 @@ struct MalayalamView: View {
                     .fill(targeted ? MalayalamTheme.accent.opacity(0.18) : Color.white.opacity(0.06))
                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .strokeBorder(MalayalamTheme.accent.opacity(targeted ? 0.8 : 0), lineWidth: 1.2))
-                VStack(spacing: 4) {
+                VStack(spacing: 8) {
                     Image(systemName: targeted ? "arrow.down.circle.fill" : "waveform")
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.system(size: 40, weight: .light))
                         .symbolEffect(.bounce, value: targeted)
-                    Text(targeted ? "Release to translate" : "Drop a voice note")
-                        .font(.system(size: 11.5, weight: .semibold))
-                    Text("WhatsApp voice notes")
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text(targeted ? "Release" : "Drop a voice note")
+                        .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(targeted ? MalayalamTheme.accent : .white)
             }
-            .frame(height: 78)
+            .frame(height: 138)
             .scaleEffect(targeted ? 1.03 : 1)
             .animation(.spring(response: 0.36, dampingFraction: 0.7), value: targeted)
             micButton
@@ -277,14 +275,14 @@ struct MalayalamView: View {
         let recording = vm.phase == .recording
         return HStack(spacing: 7) {
             Image(systemName: recording ? "waveform" : "mic.fill")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 20, weight: .semibold))
                 .symbolEffect(.variableColor.iterative, isActive: recording)
             Text(recording ? "Listening…" : "Hold to speak")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
         }
         .foregroundStyle(recording ? Color.black : .white)
-        .frame(maxWidth: .infinity, minHeight: 32)
-        .background(Capsule().fill(recording ? MalayalamTheme.accent : Color.white.opacity(0.12)))
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(recording ? MalayalamTheme.accent : Color.white.opacity(0.12)))
         .scaleEffect(recording ? 1.04 : 1)
         .animation(.spring(response: 0.35, dampingFraction: 0.7), value: recording)
         .contentShape(Capsule())
@@ -313,24 +311,19 @@ struct MalayalamView: View {
                     Text(n.sourceText).font(.system(size: 18, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.7)
                 }
                 if !n.romanText.isEmpty {
-                    Text(n.romanText).font(.system(size: 11)).italic().foregroundStyle(.secondary).lineLimit(1)
+                    Text(n.romanText).font(.system(size: 13)).italic().foregroundStyle(.secondary).lineLimit(1)
                 }
-                Text(n.english).font(.system(size: 13.5, weight: .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(2)
+                Text(n.english).font(.system(size: 16, weight: .medium)).foregroundStyle(.white.opacity(0.92)).lineLimit(2)
             } else {
-                Text("Understand family voice notes").font(Design.Font.title)
-                Text("Drop a WhatsApp voice note here. You'll see it in Malayalam, in English letters, and in English.")
-                    .font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(3)
-                if let sample = SampleNote.url {
-                    Chip(symbol: "play.fill", text: "Try a sample", primary: true) { vm.handleDrop(url: sample) }
-                }
-                Spacer(minLength: 4)
-                FirstStepsView()
+                WaveMotif().frame(maxWidth: .infinity).frame(height: 70)
+                Text("Malayalam, in your notch").font(.system(size: 22, weight: .semibold)).frame(maxWidth: .infinity)
+                Text("Drop a voice note or hold to speak.").font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
             }
             Spacer(minLength: 0)
             if !vm.status.isEmpty {
-                Text(vm.status).font(.system(size: 10.5)).foregroundStyle(.orange).lineLimit(2)
+                Text(vm.status).font(.system(size: 12.5)).foregroundStyle(.orange).lineLimit(2)
             } else if !vm.actionLine.isEmpty {
-                Text(vm.actionLine).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(MalayalamTheme.accent).lineLimit(2)
+                Text(vm.actionLine).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(MalayalamTheme.accent).lineLimit(2)
             }
             controls
         }
@@ -348,8 +341,8 @@ struct MalayalamView: View {
                 Button("Voice: smallest.ai Lightning") { vm.ttsProvider = "smallest" }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "person.wave.2").font(.system(size: 11))
-                    Text(vm.ttsProvider == "smallest" ? "Voice 2" : "Voice 1").font(.system(size: 10.5, weight: .semibold))
+                    Image(systemName: "person.wave.2").font(.system(size: 13))
+                    Text(vm.ttsProvider == "smallest" ? "Voice 2" : "Voice 1").font(.system(size: 12.5, weight: .semibold))
                 }
                 .foregroundStyle(.white).padding(.horizontal, 9).frame(height: 26)
                 .background(Capsule().fill(Color.white.opacity(0.12)))
@@ -361,9 +354,9 @@ struct MalayalamView: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "globe").font(.system(size: 11))
+                    Image(systemName: "globe").font(.system(size: 13))
                     Text(MalayalamViewModel.languages.first(where: { $0.code == vm.targetLang })?.name ?? "Hindi")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 12.5, weight: .semibold))
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 9).frame(height: 26)
@@ -377,7 +370,7 @@ struct MalayalamView: View {
     private func iconButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(Color.white.opacity(0.12)))
@@ -388,7 +381,7 @@ struct MalayalamView: View {
 
     private func badge(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 8.5, weight: .semibold)).tracking(1.1)
+            .font(.system(size: 12, weight: .semibold)).tracking(1.1)
             .foregroundStyle(MalayalamTheme.accent)
             .padding(.horizontal, 6).padding(.vertical, 1.5)
             .overlay(Capsule().strokeBorder(MalayalamTheme.accent.opacity(0.5), lineWidth: 1))

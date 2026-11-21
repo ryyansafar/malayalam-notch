@@ -124,7 +124,7 @@ struct ClipboardView: View {
             Button {
                 m.remove(item)
             } label: {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(Design.Text.tertiary))
             }
             .buttonStyle(.plain)
