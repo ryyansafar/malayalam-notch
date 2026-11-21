@@ -194,9 +194,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func dragCarriesFiles() -> Bool { _ = dragCarriesAudio(); return dragHasFilesCache }
 
     /// Shake a dragged file or folder twice near the notch (side to side, behind the physical notch): the two
-    /// big drop areas open. Four direction changes of at least 24 pt within 1.6 s, anywhere from 8 to 150 pt below the top and within 220 pt of the notch's centre, so the very top edge (macOS's Mission Control hot edge) is never needed.
+    /// big drop areas open. Four direction changes of at least 24 pt within 1.6 s, anywhere from the notch itself down to 150 pt below the top, within 220 pt of the notch's centre; shaking lower avoids macOS's Mission Control hot edge.
     private func trackShake(loc: NSPoint, mid: CGFloat, dy: CGFloat, dragging: Bool) {
-        guard dragging, abs(loc.x - mid) < 220, dy < 150, dy > 8 else { shakeTimes.removeAll(); shakeDir = 0; shakeLastX = loc.x; shakeExtreme = loc.x; return }
+        guard dragging, abs(loc.x - mid) < 220, dy < 150, dy > -20 else { shakeTimes.removeAll(); shakeDir = 0; shakeLastX = loc.x; shakeExtreme = loc.x; return }
         let dx = loc.x - shakeLastX
         if abs(dx) > 3 {
             let dir = dx > 0 ? 1 : -1

@@ -134,12 +134,11 @@ final class DropModel: ObservableObject {
         waiting = files; waitingSince = Date(); waitingCount = pb.changeCount; reminded = false
         Audit.record(AuditEntry(tool: "copy_to_clipboard", tier: Tier.reversible.rawValue, source: "drop", result: "\(files.count) item(s)"))
         ShelfModel.shared.add(files)
-        note = files.count == 1 ? "On your clipboard and kept on the shelf." : "\(files.count) items on your clipboard and kept on the shelf."
-        flying = false
-        stage = .result
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { withAnimation(.spring(response: 0.8, dampingFraction: 0.82)) { self.flying = true } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) { self.shelfPulse += 1 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { if self.result.isEmpty { self.dismiss() } }
+        // The Shelf side opens by itself, smoothly: the two areas fade out and the shelf, now holding the file, slides in.
+        stage = .idle; armed = false; note = ""; files = []
+        NotchModel.shared.pinnedUntil = Date().addingTimeInterval(12)
+        withAnimation(.spring(response: 0.55, dampingFraction: 0.84)) { NotchModel.shared.tab = .shelf }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { self.shelfPulse += 1 }
     }
 
     func keepOnShelf() { ShelfModel.shared.add(files); note = "Kept on the shelf." }
