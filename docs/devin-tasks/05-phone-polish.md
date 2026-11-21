@@ -1,0 +1,11 @@
+You are working in a small Node.js (>= 20, ES modules) web project called rowing-call. Read CONTRACT.md first, then read the existing phone page you must improve: public/phone.html, public/phone.js, public/phone.css (written by an earlier session) and the server's SSE events in server/index.js (call and result events).
+
+YOUR TASK (touch only public/phone.html, public/phone.js, public/phone.css): polish the phone page into a proper, beautiful mobile experience without breaking anything that works.
+- Hero: a large animated oar visual in SVG (no images, no external requests) that swings in time with detected strokes; the strokes-per-minute number very large; a stroke pulse ring on each stroke.
+- Keep the Screen Wake Lock (navigator.wakeLock.request('screen')) active while rowing so the phone does not sleep; re-acquire on visibilitychange; handle unsupported browsers silently.
+- Haptics: navigator.vibrate patterns on a new call and on the result (different patterns for obeyed, not obeyed, not sure) where supported; feature-detect and never error on iOS.
+- When a call arrives: the meaning in huge type with a smooth transition, LIVE or REPLAY badge, the audio plays (keep the audio-unlock behaviour), and a clear "Tap to hear" fallback if autoplay is blocked.
+- Result screen states with text plus colour (green, red, amber), plus a short line saying how many strokes it took.
+- Keep the honest simulation fallback ("TAP TO ROW (simulation)") visible and clearly labelled whenever real motion is not available.
+- Mobile polish: safe-area insets, theme-color meta, apple-mobile-web-app-capable meta, 100dvh layout, large touch targets, prefers-reduced-motion support, dark restrained palette (background #0a0a0a, olive #464A39, one warm signal colour), system font stack with Space Grotesk first, no external requests, no frameworks, no emojis, accessible (aria-live regions, contrast).
+Rules: each file under 400 lines; do not run git commands except `git add` of your own three files and one `git commit` at the end with a message starting "feat(phone): polish"; do not push, do not install packages, do not touch any other file. Run `node --check public/phone.js`. If you cannot test on a real phone, say so plainly. When finished, reply with a short factual summary of what changed and what you could not verify.
