@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rowing-call — notch</title>
+<link rel="stylesheet" href="notch.css">
+</head>
+<body>
+<div id="island" class="idle" role="complementary" aria-label="rowing-call island">
+
+  <!-- The top bar always aligns with the physical notch: the middle gap sits
+       over the camera cutout, the wings are visible to its left and right. -->
+  <div id="bar">
+    <div class="wing left">
+      <span id="dot" class="dot" title="phone"></span>
+      <svg id="oar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l9.2 9.2M13.2 13.2 20 20M15 9c1.8-1.8 4.5-2 5.2-1.3.8.8.5 3.5-1.3 5.2-1.5 1.5-3.5 1.3-4.2.7-.6-.7-.8-2.7.3-4.6Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="wait" class="wait">waiting for server</span>
+    </div>
+    <div id="gap" aria-hidden="true"></div>
+    <div class="wing right">
+      <span id="spm">0</span><span class="unit">spm</span>
+    </div>
+  </div>
+
+  <!-- Expanded content: call, verdict, and the island's own controls. -->
+  <div id="panel">
+    <section id="v-call" class="view" aria-live="polite">
+      <div class="call-head">
+        <span id="origin-badge" class="badge dim" hidden></span>
+        <span id="call-lane" class="badge" hidden></span>
+        <svg id="ring" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="ring-bg" cx="18" cy="18" r="15.9"></circle>
+          <circle id="ring-fg" class="ring-fg" cx="18" cy="18" r="15.9"></circle>
+        </svg>
+      </div>
+      <p id="call-ml" class="ml" hidden></p>
+      <p id="call-text" class="call-text"></p>
+      <p id="call-spoken" class="call-spoken"></p>
+      <p id="call-live" class="call-live"><span id="call-spm">0</span> spm · <span id="call-count">–</span> s</p>
+    </section>
+
+    <section id="v-verdict" class="view" aria-live="polite">
+      <p id="verdict" class="verdict"><span id="verdict-icon" aria-hidden="true"></span><span id="verdict-word"></span></p>
+      <p id="verdict-reason" class="reason"></p>
+    </section>
+
+    <section id="v-idle" class="view">
+      <p id="idle-line" class="muted">rowing-call · shout, drop a voice note, or type below</p>
+    </section>
+
+    <p id="err" class="status" role="alert" hidden></p>
+    <p id="note-status" class="status muted" role="status" aria-live="polite" hidden></p>
+
+    <div id="controls">
+      <div id="langs" role="radiogroup" aria-label="target language"></div>
+      <div class="row">
+        <input id="shout" type="text" autocomplete="off" placeholder="Type a call — Malayalam or English — Enter sends">
+        <button id="mic" type="button" class="chip" title="Hold to talk — record up to 25 s and send as a call">hold to talk</button>
+      </div>
+      <div class="row">
+        <button id="speaker" type="button" class="chip" aria-pressed="true" title="Mute or unmute the spoken call">sound on</button>
+        <button id="replay" type="button" class="chip" disabled>replay call</button>
+        <button id="replay-coach" type="button" class="chip" disabled title="Replay the coach's Malayalam voice">replay coach</button>
+        <label id="coach-label" class="chip check" hidden><input id="coach" type="checkbox"> coach voice</label>
+        <span class="flex"></span>
+        <button id="quit" type="button" class="chip" title="Quit (or Cmd-Q while hovering)">quit</button>
+      </div>
+      <p id="drop-hint" class="muted">drop a WhatsApp voice note (.opus, .ogg, .m4a, .mp3, .wav · ≤ 5 MB · ≤ 30 s) anywhere on the island</p>
+      <p id="watch" class="muted" hidden></p>
+      <ul id="archive" aria-label="recent calls"></ul>
+    </div>
+  </div>
+</div>
+<script type="module" src="notch.js"></script>
+</body>
+</html>
