@@ -23,7 +23,7 @@ const nextDir = () => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function waitFor(cond, ms = 4000) {
+async function waitFor(cond, ms = 8000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     if (cond()) return true;

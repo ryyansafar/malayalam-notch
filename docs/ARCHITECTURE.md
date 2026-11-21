@@ -1,103 +1,55 @@
-# rowing-call: architecture
+# Malayalam in the notch: architecture
 
-An induction and classroom drill, not race equipment. A phone is the oar. A shouted Malayalam work call is translated to English (Sarvam Saaras), mapped to one of six meanings by a deterministic keyword matcher, spoken to the rower in their language (Sarvam Bulbul), and the phone's stroke rate shows whether the rower obeyed.
-
-Honest status: this is a pre-event spike. The call table is placeholder (UNVERIFIED), the spoken phrases are not reviewed by native speakers, Saaras on shouted Malayalam is untested, and no accuracy figure has been measured.
+One product: a Malayalam-first assistant in the MacBook notch. A voice note (or typed Malayalam, or a mic clip) is heard by three parallel Sarvam Saaras modes — `transcribe` (Malayalam script), `translit` (romanised), `translate` (English) — shown on the result card, and optionally spoken in another language (Bulbul; smallest.ai Lightning optional).
 
 ## Modules
 
 | File | Role |
 |---|---|
-| `shared/stroke.js` | Stroke detector from accelerometer samples. Runs on the phone. Built separately. |
-| `shared/calls.js` | `MEANINGS`, placeholder `CALLS`, `EXPECTED` thresholds, `matchMeaning(text)`, `noMatchReason(text)` (`empty`, `negation`, `conflict`, `no_match`, or null when matched). Pure, browser and Node. |
-| `shared/obedience.js` | `evaluate({ meaning, callT, events, baselineSpm, windowMs })` gives `{ obeyed, strokesUntilObeyed, deltaSpm, reason }`. Pure. |
-| `sarvam/client.js` | `createSarvamClient({ apiKey, mode, cacheDir })` with `translate()` and `speak()`. File cache keyed by sha256 of the canonical input. Modes: live, replay, auto. |
-| `smallest/client.js` | `createSmallestClient({ apiKey, mode, cacheDir })` with `speak()`, `speakMalayalam()` (Lightning v3.1, WAV) and `transcribe()` (Pulse). Same modes, cache folder and retry rule as the Sarvam client; cache files are prefixed `smallest-speak-` and `smallest-transcribe-`. Optional. |
-| `sarvam/classifier.js` | `createMeaningClassifier({ apiKey, mode, cacheDir })` with `classify({ text })` giving `{ meaning or null, confidence: 'model', source, latencyMs, model }`. Hosted chat model `sarvam-105b`, strict JSON schema, 6 s budget, cache files prefixed `classify-`. Optional, off by default. |
-| `sarvam/record-fixtures.js` | CLI that records live answers into `sarvam/cache` for offline REPLAY. |
-| `server/archive.js` | `createArchive({ file, maxEntries })`: capped, searchable archive of every heard call, persisted as JSON lines under `data/` (git-ignored). Audio bytes and keys are never stored; IO errors are logged and swallowed so archiving can never fail a shout. `archiveCsv`/`archiveJson` build the text-only downloads. |
-| `server/watcher.js` | `createWatcher({ dirs, ingest })`: watches folders with `fs.watch`, waits for a new file's size to stop changing (finished writing), sniffs the magic bytes, dedupes on sha256(first 64 KB)+size and calls `ingest`. Never backfills files present at startup, never modifies sources. `resolveWatchDirs(env)` builds the dir list (default `~/Downloads/rowing-call-inbox`, extras via `WATCH_DIRS`, off via `WATCH_INBOX=0`). |
-| `server/ingest.js` | `npm run ingest -- <file>` CLI: sniff + limits, then `POST /api/shout` on the running server. |
+| `shared/audio-sniff.js` | `sniffAudio(buf)` (magic bytes → `{ format, mime, label }`), `formatFromName`, `measureDuration` (Ogg granule + WAV header exact, size estimate otherwise), `cutOgg` (lossless first-N-seconds at a page boundary). Browser and Node. |
+| `shared/audio-mime.js` | `mimeFromName(filename, reported)` — extension mime when the browser reports none. |
+| `sarvam/client.js` | `createSarvamClient({ apiKey, mode, cacheDir })`: `stt({ audio, mime, sourceLang, mode })` for all five Saaras modes, `translate({ text, targetLang })` (Mayura), `speak({ text, targetLang })` (Bulbul v3). File cache keyed by sha256 of canonical inputs, per-mode keys. Modes: live, replay, auto. |
+| `smallest/client.js` | `createSmallestClient(...)`: `speak()` (Lightning v3.1, WAV), `speakMalayalam()`. Same mode/cache/retry rule; cache files prefixed `smallest-speak-`. Optional. |
+| `sarvam/record-fixtures.js` | CLI recording live answers into `sarvam/cache`; `--audio` records all three STT modes per file. |
+| `server/hub.js` | SSE hub, frozen session state (`langs`, `phone`, `lastNote`), body validation (`validateShout`, `validatePhone`). |
+| `server/archive.js` | `createArchive({ file, maxEntries=500 })`: JSONL archive of `{ id, time, source, filename, language, transcript, roman, text }`. No audio, no keys; IO errors logged and swallowed. `archiveCsv`/`archiveJson` exports. |
+| `server/watcher.js` | `createWatcher({ dirs, ingest })`: `fs.watch` + size-stability + sha256 dedupe → `ingest`. Never backfills, never modifies sources. `resolveWatchDirs` builds the list (default `~/Downloads/malayalam-notch-inbox`, extras `WATCH_DIRS`, off `WATCH_INBOX=0`). |
+| `server/ingest.js` | `npm run ingest -- <file>` CLI: sniff + limits → `POST /api/shout`. |
 | `server/index.js` | HTTP(S) server: routes, validation, static files, the shout flow. Everything external is injected into `createServer`. |
-| `server/hub.js` | SSE hub, immutable session state, the spoken phrase table (`PHRASES`), validation of inbound bodies. |
-| `shared/audio-mime.js` | `mimeFromName(filename, reported)`: audio mime from the file extension when the browser reports none (WhatsApp `.opus`). Browser and Node. |
-| `shared/audio-sniff.js` | `sniffAudio(buf)` (magic bytes → `{ format, mime, label }`), `formatFromName`, `measureDuration` (Ogg granule position and WAV header exactly, size estimate otherwise), `cutOgg` (lossless first-N-seconds cut at an Ogg page boundary). Browser and Node. |
-| `server/qr.js` | QR SVG (qrcode-generator), landing page and message page HTML. |
-| `server/env.js` | `.env` parser, config validation, startup banner. Never prints values. |
-| `public/phone.*`, `public/dashboard.*` | Phone page and laptop dashboard. Built separately. |
+| `server/qr.js`, `server/env.js` | QR SVG + landing/message pages; `.env` parser + startup banner (never prints values). |
+| `public/notch.*` | The island page: `notch-core.js` holds pure phase/card/shelf logic (Node-testable), `notch.js` the DOM/SSE/native wiring, `notch.css` the shape + spring morphs. |
+| `public/dashboard.*` | The desk: voice-note inbox, latest note, archive table. |
+| `public/phone.*` | Hold-to-talk mic page + PWA share target (`/share`). |
+| `notch-app/NotchApp.swift` | Borderless non-activating NSPanel + transparent WKWebView; always-on NSDraggingDestination over the notch; global `.leftMouseDragged` monitor + drag-pasteboard check for early expand; URLSession post for native drops. |
 
 Zero runtime dependencies except `qrcode-generator`. Tests use `node:test`.
 
 ## Data flow
 
 ```
-phone (devicemotion) -> shared/stroke.js -> POST /api/stroke (batches, ~500 ms)
-                                              |
-                                              v
-dashboard -> POST /api/shout ----------> server/index.js
-   { text | audioBase64, targetLang }      1. sarvam.translate()   audio: Saaras v4 translate mode
-                                              (source ml-IN)       typed text: Mayura text translation
-                                           2. matchMeaning(english)
-                                           3. confidence none -> trial "not_sure", stop here
-                                           4. sarvam.speak(PHRASES[meaning][targetLang])   Bulbul v3
-                                           5. broadcast `call`, baseline = last stroke rate before the call
-                                           6. observe strokes for windowMs (8 s) + 750 ms grace
-                                           7. evaluate() -> broadcast `result`, append to trials
-                                              |
-                         GET /events (SSE) <--+--> phone plays the audio, dashboard shows evidence
+notch drop / watched folder / share sheet / ingest / mics / typed text
+              |
+              v
+     POST /api/shout  (one shout at a time -> 429 busy)
+        audio input:
+          Promise.all on the SAME buffer+mime:
+            stt(mode='transcribe') -> sourceText    (Malayalam script)
+            stt(mode='translit')   -> romanText     (romanised)
+            stt(mode='translate')  -> translatedText (English)
+          failed modes recorded in failedOps; all three failing -> 502
+        text input:  Mayura translate; the typed text is kept as sourceText
+        -> speak(spokenText, targetLang)  Bulbul or Lightning (ttsProvider)
+        -> archive.add({ transcript, roman, text }); hub 'received' + 'note'
+              |
+   GET /events (SSE: state, received, note, phone) -> island, desk, phone
 ```
 
-Other shout entry points all reach the same `POST /api/shout` path (one shout at a time): the watched-folder ingest (`server/watcher.js` → `POST /api/shout` on the same server), `npm run ingest`, the `/share` share target, the dashboard drop zone and the phone's hold-to-record button (`source: phone_mic`).
+`POST /api/speak` re-speaks stored text (the shelf's "speak" chips and the desk's "Speak again"). `POST /api/phone` is the phone heartbeat. `GET /api/state` gives `langs`, `phone`, `lastNote`, `notesToday`, `serverT`. `GET /api/providers` reports booleans and modes only. `GET /api/archive`, `/api/archive.json`, `/api/archive.csv` serve the archive. `POST /share` (+ `/share/cut`) is the PWA share target.
 
-Optional smallest.ai paths (all off by default; the flow above is unchanged without them):
+## The island contract
 
-- `ttsProvider: 'smallest'` in the shout body: step 4 uses `smallest.speak()` with the same phrase table. Every call and trial records `ttsProvider` and `tts { provider, latencyMs, source }` (`tts` is null when speech failed).
-- `coachPlayback: true` with typed text: in parallel with the flow, `smallest.speakMalayalam(text)` speaks the coach's own call; the audio is returned only in the HTTP response (`coachAudioBase64`, `coachMime`, `coachSource`, `coachLatencyMs`), never broadcast or stored.
-- `SECOND_EAR=1` with audio input: step 1 runs two ears in parallel. Ear one is Saaras translate. Ear two is `smallest.transcribe(audio, 'ml')`, then `sarvam.translate({ text })` (Mayura), then `matchMeaning`. Both meanings set and equal: `ears: 'agree'`, confidence `high`. Both set and different: trial `not_sure`, reason `two ears disagree`. Exactly one set: that one is used, `ears: 'single'`. Neither: the usual `not_sure`, `ears: 'none'`. A failed second ear is logged by error name and counts as unset. `ears` and `secondEar { transcript, translatedText, meaning, source, latencyMs }` appear on call, result and trial rows only when the second ear ran. The hearing stage latency is the slower of the two ears.
+Page → native channel `webkit.messageHandlers.notch`: `{type:'size',w,h}` (window jumps, never animates), `{type:'hover',on}` (key-without-activating), `{type:'quit'}`. Native → page: a `notch-native` CustomEvent with `{type:'drag',on}`, `{type:'nativeDrop',filename}`, `{type:'nativeError',message}`, `{type:'hoverNear',on}`.
 
-Optional model fallback (`MODEL_FALLBACK=1`, default off; the flow above is unchanged without it):
+Phases (`public/notch-core.js`): `idle`, `received`, `translating`, `result`, `recording`, `error` — each with a plain-words line; the card shows only API-returned text and names failed modes; the shelf keeps the last five notes (`pushShelf`, capped, no audio); `shouldCollapse` collapses after `COLLAPSE_AFTER_MS` unless recording/busy/focused/dragging.
 
-- Between steps 2 and 3. If `matchMeaning` found nothing and `noMatchReason(english)` is exactly `no_match`, the server calls `classifier.classify({ text })`. `negation`, `conflict`, `empty`, an unknown reason, and `ears: 'disagree'` never reach the model; with the second ear on, its English text must not be negated or conflicting either. The classifier repeats the same check itself before any request.
-- The model only chooses among the six meanings or `none` (JSON schema enum, validated again on our side, and again when read from the cache). `none`, an invalid answer, an error or a timeout (6 s in the classifier, 6.5 s hard stop in the server) continues to step 3 as "not sure".
-- With the flag on, call, result and trial rows carry `matchedBy` (`rules`, `model`, or null for not sure) and `model` (null if not asked, else `{ meaning, name, latencyMs, source, error }`); a model decision has `confidence: 'model'` and `matchedKeyword: null`; `sources.model` is added when the model was asked; `latencyMs` includes the model time; the call is LIVE only if the model answer was live too. With the flag off none of these fields exist.
-
-Environment: `SMALLEST_API_KEY` (optional; the smallest.ai client follows `SARVAM_MODE`), `SECOND_EAR` (`1` to enable, default off) and `MODEL_FALLBACK` (`1` to enable, default off; uses `SARVAM_API_KEY`).
-
-Clocks: phone stroke timestamps are on the phone clock. The server re-anchors each batch so that `sentAt` (or the newest event) equals server "now"; `t` in every broadcast stroke is server time and `phoneT` keeps the original.
-
-Sarvam modes: `live` always calls the API and caches each success. `replay` reads only the cache and fails with `NoReplayAvailable` when the exact input was never recorded. `auto` is live when a key is present, else replay. On 429, 5xx, timeout or 402 the client retries once (not for 402) and then falls back to the cache if it can. A call is labelled LIVE only if every part of it was live.
-
-## Routes
-
-| Route | Purpose |
-|---|---|
-| `GET /` | Landing page: QR to `/phone`, link to `/dashboard`, LIVE or REPLAY badge. |
-| `GET /phone`, `GET /dashboard` | `public/phone.html`, `public/dashboard.html` (a plain "not built yet" page if missing). |
-| `GET /public/*`, `GET /shared/*`, `GET /<file.ext>` | Static files. Known extensions only, no dotfiles, no traversal, symlinks must stay inside the folder. |
-| `GET /qr.svg?url=` | QR code as SVG for an absolute http(s) URL of at most 512 characters. |
-| `GET /events` | Server-sent events (below). |
-| `GET /api/state` | Current public state as JSON. |
-| `POST /api/phone` | Phone hello and heartbeat: `{ userAgent?, simulated? }`. |
-| `POST /api/stroke` | `{ events: [{ type: 'stroke', t, rateSpm, count }], sentAt? }`, at most 200 per batch. |
-| `POST /api/shout` | `{ text, targetLang }` or `{ audioBase64, mime?, targetLang }`. `targetLang` is one of `en-IN, hi-IN, bn-IN, od-IN, ta-IN`. Optional: `ttsProvider` (`sarvam` default, or `smallest`) and `coachPlayback` (boolean); bad values get a 400. Optional `source` (`voice_note`, `text`, `mic`, `phone_mic`, `whatsapp_share`, `whatsapp_desktop`, `watched_folder`, `ingest`; defaults to `mic` for audio and `text` for text) and `filename` (a file name, no path separators, at most 200 characters) are used only for the archive entry. |
-| `POST /share` | PWA share target (multipart): sniffs the shared audio, enforces the 5 MB / 30 s limits, offers a token-held lossless Ogg cut for long notes and runs it through the same shout path. Answers with a small HTML page, not JSON. |
-| `POST /share/cut` | `{ token }` form post: sends the held first-30 s cut of an earlier shared note (single-use, expires). |
-| `GET /api/archive` | `{ ok, entries }` newest first; `?q=` searches the translation, meaning, filename and language. Persisted in `data/archive.jsonl`, capped at 500 entries. An entry is written when a call is heard (`verdict: null`) and updated when the trial is judged. |
-| `GET /api/archive.json`, `GET /api/archive.csv` | The archive as a download (`Content-Disposition: attachment`), text only — audio is never archived. CSV quotes cells with commas, quotes or line breaks and doubles embedded quotes. |
-| `GET /api/providers` | `{ providers: { sarvam: { configured, mode }, smallest: { configured, mode } }, ttsProviders, defaultTtsProvider, coachPlayback, secondEar, watchDirs }`, plus `modelFallback: true` only when the model fallback is active. Booleans and mode names only, never keys. `watchDirs` lists the folders the voice-note watcher is reading (the dashboard shows a "watching:" line). |
-
-Errors are JSON `{ ok: false, error: { code, message } }`: 400 validation, 404, 405, 413 (body over 8 MB), 429 (a shout is already in flight), 502 (Sarvam call failed), 503 (`no_replay_available`, or QR unavailable). No stack traces leave the process.
-
-## SSE events
-
-| Event | Payload |
-|---|---|
-| `state` | Full public state: `mode`, `phone`, `stroke`, `recentStrokes`, `lastCall`, `lastResult`, `trials`, `tally { obeyed, notObeyed, notSure, total }`, `langs`, `callsVerified: false`, `phrasesReviewed: false`, `serverT`. Sent on connect and after every result. |
-| `phone` | `{ connected, lastSeenT, userAgent, simulated }`. Disconnects after 10 s without a heartbeat or stroke. |
-| `stroke` | `{ type: 'stroke', t, phoneT, rateSpm, count, simulated }`. |
-| `call` | `{ callId, t, meaning, translatedText, confidence, matchedKeyword, spokenText, targetLang, ttsAudioBase64, mime, ttsAvailable, source, sources { translate, speak }, latencyMs, baselineSpm, windowMs, status: 'ok', ttsProvider, tts { provider, latencyMs, source } }`, plus `ears` and `secondEar` when the second ear ran. Audio is sent here once and never stored in state. |
-| `result` | The trial row: the call fields without audio, plus `obeyed` (true, false or null), `strokesUntilObeyed`, `deltaSpm`, `reason`, `outcome` (`obeyed`, `not_obeyed`, `not_sure`), `status` (`judged` or `not_sure`), `stage`, `strokesObserved`, `superseded`. A shout whose meaning was not recognised produces a `result` with `status: 'not_sure'` and no `call`. |
-
-## State and limits
-
-State lives in memory only and is rebuilt as a new frozen object on every change. It keeps the last 600 strokes and 500 trials; a restart clears the evidence table. One shout is processed at a time, and a new call ends an open observation window early (that trial is marked `superseded`).
+Design is specified in `docs/DESIGN.md`; window/animation technique in `docs/NOTCH-REFERENCE.md`; approach-region + drop-target geometry in `docs/DRAG-FINDINGS.md`; Saaras modes in `docs/SARVAM-FINDINGS.md`.

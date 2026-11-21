@@ -1,10 +1,12 @@
 {
-  "name": "rowing-call",
+  "name": "malayalam-notch",
   "version": "0.1.0",
   "private": true,
-  "description": "Translated rowing-call trainer: phone as oar, a shouted Malayalam call translated live, obedience measured by stroke rate.",
+  "description": "Malayalam in the notch: drag a WhatsApp voice note toward the MacBook notch, it expands, transcribes and translates the Malayalam, and can speak the result in another language.",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server/index.js",
     "notch": "mkdir -p notch-app/build && swiftc -O -framework AppKit -framework WebKit -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker notch-app/Info.plist notch-app/NotchApp.swift -o notch-app/build/notch && notch-app/build/notch",
@@ -12,5 +14,17 @@
     "record": "node sarvam/record-fixtures.js",
     "ingest": "node server/ingest.js"
   },
-  "dependencies": { "qrcode-generator": "^1.4.4" }
+  "dependencies": {
+    "qrcode-generator": "^1.4.4"
+  },
+  "keywords": [
+    "malayalam",
+    "notch",
+    "macos",
+    "whatsapp",
+    "voice-notes",
+    "sarvam",
+    "speech-to-text",
+    "translation"
+  ]
 }

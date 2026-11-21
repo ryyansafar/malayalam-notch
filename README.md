@@ -1,77 +1,47 @@
-# rowing-call
+# Malayalam in the notch
 
-**Someone shouts a rowing command in Malayalam. A rower who does not speak Malayalam hears what it means in their own language, and the phone in their hands shows whether the stroke obeyed.**
+**Drag a WhatsApp voice note toward the MacBook notch. The island opens, the Malayalam is transcribed and translated, and the answer can be spoken back in another language.**
 
-Built at Hackathoni (Alappuzha, 21-22 Nov 2026) with Devin. ES modules, Node 20 or newer, one runtime dependency (a QR code library).
+Built at Hackathoni (Alappuzha, 21-22 Nov 2026). ES modules, Node 20 or newer, one runtime dependency (a QR code library), and a native Swift shell for the notch.
 
 ## What it is
 
-A practice drill for the classes that Alappuzha snake-boat clubs already run for rowers from outside Kerala. It is an induction and classroom tool, not race equipment. It covers six meanings: start, speed up, slow down, hold, ready, stop.
+A Malayalam-first assistant that lives in the notch:
 
-1. A Malayalam speaker shouts a command into the laptop, in their own words (or types it).
-2. Sarvam Saaras translates the shout to English text (Sarvam Mayura handles the typed fallback).
-3. A deterministic keyword matcher maps the English text to one of the six meanings, or answers "not sure". No model is involved in this step; the same input always gives the same answer.
-4. Sarvam Bulbul speaks the meaning to the rower in their language (smallest.ai Lightning is an optional second voice). Built-in languages: English, Hindi, Bengali, Odia, Tamil.
-5. The rower holds a phone like an oar. The phone's motion sensor counts strokes, and the server checks whether the stroke rate changed the way the command asked.
-6. The dashboard shows the translation, the meaning, the spoken phrase, the verdict ("obeyed in N strokes", "not obeyed" or "not sure"), and an evidence table of every trial.
+1. Drag an audio file — a WhatsApp `PTT-*.opus` voice note is the hero case — toward the top of the screen. The island expands as the file approaches and glows as a drop target **below** the screen edge (the top edge itself triggers Mission Control; see `docs/DRAG-FINDINGS.md`).
+2. The same audio goes through three Sarvam Saaras `saaras:v4` modes **in parallel**: `transcribe` (Malayalam script), `translit` (romanised) and `translate` (English). One failed mode never erases the others.
+3. The result card shows all three texts, the detected language code and a **Speak** button that reads the translation aloud in a chosen language (Sarvam Bulbul; smallest.ai Lightning is an optional second voice). Typed Malayalam and the Mac/phone microphones work too.
+4. The last five notes sit as chips on the shelf; everything is archived to `data/archive.jsonl` (500 entries, text only — audio bytes are never stored).
 
-## Who it is for
-
-More than 200 professional rowers from outside Kerala row for Nehru Trophy clubs, and most clubs arrange special classes so they can follow the leading captain's Malayalam instructions ([Onmanorama, 25 Aug 2025](https://www.onmanorama.com/travel/travel-news/2025/08/25/nehru-trophy-boat-race-special-classes-for-non-malayali-rowers.html)). This tool is for those classes and the people who run them. That one report is the whole evidence of need; no club or rower has been asked.
+Transcription and translation are **Sarvam cloud** services, and the card says so. The API reports a language code — a language, never a dialect claim. Machine translation is not certified translation.
 
 ## How to run
-
-Needs Node 20 or newer, a laptop and a phone on the same network. Full details, troubleshooting and the offline demo path are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ```
 npm install
 cp .env.example .env      # optional; never commit .env
 npm test
-npm start
+npm start                 # server on :3000
+npm run notch             # builds notch-app/NotchApp.swift with swiftc and launches the island
 ```
 
-- Open `http://localhost:3000/` on the laptop for the landing page (QR to the phone page, link to `/dashboard`).
-- Open `http://localhost:3000/dashboard` on the laptop and `/phone` on the phone.
-- Phone motion sensors need a secure page. `docs/RUNBOOK.md` gives two ways: a quick HTTPS tunnel, or a self-signed certificate served through `CERT_FILE` and `KEY_FILE`.
-- No key or no network: `SARVAM_MODE=replay npm start` plays recorded answers with a REPLAY badge. `npm run record` records fixtures ahead of time (needs a key).
-- Demo steps: see [DEMO.md](DEMO.md).
+- `http://localhost:3000/` — landing page (QR to the phone mic page, link to the desk).
+- `http://localhost:3000/dashboard` — the desk: voice-note drop zone, latest note, archive with search/export.
+- `http://localhost:3000/phone` — hold-to-talk phone microphone (HTTPS or localhost needed for mic access).
+- `npm run ingest -- <file>` — send one audio file through the same path from the shell.
+- `SARVAM_MODE=replay npm start` — run offline against recorded fixtures in `sarvam/cache` (`npm run record` records more; needs a key).
 
-## WhatsApp voice notes
+Voice notes also arrive automatically: the server watches `~/Downloads/malayalam-notch-inbox` (create it or let the server do it, then save a voice note there from WhatsApp Desktop — right-click → Download). `WATCH_DIRS` adds more folders, `WATCH_INBOX=0` turns the default off. Files are only read, never modified, and nothing is sent from or to WhatsApp itself.
 
-A coach can send the call as a WhatsApp voice note instead of shouting at the laptop mic. **Nothing is sent automatically from or to WhatsApp**: there is no bot and no WhatsApp account access — the app only reads audio files that were placed in a watched folder or dropped on the dashboard. Transcription is Sarvam cloud speech-to-text, so the audio leaves the laptop.
+## The notch
 
-Four ways in, all through the same shout path:
+A borderless, non-activating panel is parked over the notch (floating pill on notch-less Macs; the size always comes from `NSScreen`). Collapsed, it merges with the notch — a waveform glyph left, today's note count right. It opens on hover, expands early when a file drag approaches, shows the received line instantly, a shimmer while translating, and the result card. Right-click for Quit / Mute / Open desk.
 
-1. **Watched inbox folder (WhatsApp Desktop / WhatsApp Web).** On startup the server creates and watches `~/Downloads/rowing-call-inbox`. In WhatsApp Desktop on the MacBook, right-click a voice note → **Download** (or Save as) → save it there. The file is read once it has finished writing, run through the shout path and archived with source `whatsapp_desktop`. Files already in the folder at startup are never picked up (no backfill), non-audio and over-5 MB files are ignored, and the source file is only ever read — never deleted, moved or modified. `WATCH_DIRS` (comma-separated absolute paths, `~` allowed) adds more folders; `WATCH_INBOX=0` turns the default one off. The dashboard shows a "watching:" line.
-   - WhatsApp Desktop keeps downloaded media under `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media/` (the exact layout varies by version — check yours). It is **not** watched by default: every voice note from every chat saved there would be sent to Sarvam. If you add it to `WATCH_DIRS`, the server prints a warning at startup.
-2. **Dashboard drop zone.** Drop the file onto the **Voice-note inbox** panel (or click to choose).
-3. **`npm run ingest -- <file>`** — sends one file to the running server, exactly like a drop (`--lang=hi-IN` picks the rower's language, `--port` the server port).
-4. **Phone share sheet.** The phone page is an installed-PWA share target: sharing a voice note to it posts the file to `/share` and answers with a small page.
+The window itself never animates — it jumps to the needed size while the island shape morphs inside it with sampled SwiftUI spring curves (`docs/NOTCH-REFERENCE.md`). An always-on native drop zone sits over the notch so a real Finder drag can land natively; a global drag monitor opens the island while the file is still on its way.
 
-Accepted formats (checked by the file's own magic bytes, not the name or the browser's mime guess): Ogg/Opus (WhatsApp `PTT-*.opus`, `.ogg`, `.oga`), WAV, MP3 (ID3 or frame sync), M4A/MP4 (`ftyp`), AAC/ADTS, AMR (`.amr`, `.awb`), WebM and FLAC. Anything else gets a plain "not a recognised audio file" message.
+## Accepted audio
 
-Limits are enforced honestly: **5 MB** max, and **30 s** max (the Sarvam REST speech-to-text limit). Duration is measured exactly for Ogg (last granule position) and WAV (header) and estimated from size otherwise. A longer Ogg note offers a **"use the first 30 s"** button — a lossless cut at an Ogg page boundary, nothing re-encoded; longer notes in other formats just say so. Audio is never silently truncated.
-
-Every heard call — voice note, microphone, phone mic or typed — is kept in the **Call archive** panel: searchable by translation, meaning or language, filterable per language code (the code Sarvam reported — a language, never a dialect claim), with a summary strip (notes today, languages seen, obeyed / not obeyed / not sure), a **copy** button per entry, and **Export JSON / CSV** downloads. Audio bytes are never stored. The archive persists between restarts in `data/archive.jsonl` (git-ignored, capped at 500 entries). "Replay as call" re-sends the stored English text through the shout path; it does not replay the audio.
-
-## Phone microphone
-
-The rower's phone is also the coach's microphone: a big **HOLD TO CALL** button on the phone page records while it is held (MediaRecorder, `audio/webm;codecs=opus` with fallbacks, 25 s max with a live timer) and uploads the clip as a `phone_mic` shout. The microphone is asked for on the first press and only ever open while the button is held; denied permission, missing hardware and missing APIs each get a clear message. Recording never interrupts stroke detection — the rower can keep rowing while the coach dictates. HTTPS is required (use a tunnel or the self-signed route in the runbook).
-
-## MacBook notch (macOS only)
-
-The whole drill also lives in the MacBook notch, like a Dynamic Island.
-
-```
-npm start        # the server must be running
-npm run notch    # builds notch-app/NotchApp.swift with swiftc and launches it
-```
-
-A borderless panel is parked over the notch (a floating pill on Macs without one; the size always comes from `NSScreen`, never hard-coded). Collapsed, the island merges with the notch: a phone-connected dot and a pulsing oar on the left, the live stroke rate on the right. Hovering, a call, or a verdict grows it; 6 s of quiet shrinks it. Expanded, it shows the call (English meaning, the spoken target-language line, a countdown ring for the 8 s window), plays the call through the Mac speakers (mute/replay buttons), and takes input itself: a text field that accepts the macOS Malayalam keyboard, a hold-to-talk mic button (25 s max), and a drop target for WhatsApp voice notes. Language chips and the latest archive entries are there too, so the demo runs without opening the dashboard.
-
-Quit with the island's **quit** button or Cmd-Q while hovering. The mic needs a one-time macOS permission (System Settings → Privacy & Security → Microphone); the button hides itself if capture cannot work.
-
-Verified on a 15-inch MacBook Air (M2, macOS 27): build, placement over the notch, expand on call, the verdict badge and archive row, and the 6 s collapse — all confirmed with screen captures. Microphone capture, Cmd-Q and audio playback paths are wired (embedded `Info.plist`, the WKWebView permission delegate, autoplay allowed) but were not exercised end-to-end on this machine. The page is served at `/notch.html` (the bare `/notch` route does not exist).
+Checked by magic bytes, not the file name: Ogg/Opus (WhatsApp `.opus`/`.ogg`), WAV, MP3, M4A/MP4, AAC/ADTS, AMR, WebM, FLAC. Max 5 MB and 30 s (the Saaras REST limit); a longer Ogg note can be losslessly cut to the first 30 s.
 
 ## Environment variables
 
@@ -81,81 +51,67 @@ Names and defaults only; `.env` is git-ignored and values are never printed or l
 |---|---|---|
 | `PORT` | 3000 | Listening port. |
 | `SARVAM_API_KEY` | empty | Sarvam key for Saaras, Mayura and Bulbul. |
-| `SARVAM_MODE` | auto | `live`, `replay`, or `auto` (live if a key is set, else replay). |
+| `SARVAM_MODE` | auto | `live`, `replay`, or `auto` (live if a key is set). |
 | `CERT_FILE`, `KEY_FILE` | empty | Set both to serve HTTPS locally. |
-| `SMALLEST_API_KEY` | empty | smallest.ai key for the optional second voice (Lightning), coach playback and second ear (Pulse). Follows `SARVAM_MODE`. |
-| `SECOND_EAR` | 0 | `1` also transcribes each spoken shout with smallest.ai Pulse and compares the two meanings. Off by default. |
-| `WATCH_INBOX` | 1 | `0` turns off the default voice-note inbox folder `~/Downloads/rowing-call-inbox`. |
-| `WATCH_DIRS` | empty | Comma-separated extra folders to watch for voice notes (absolute paths, `~` allowed). |
-| `WATCH_LANG` | en-IN | Rower language used for shouts ingested from watched folders. |
+| `SMALLEST_API_KEY` | empty | smallest.ai key for the optional second voice. Follows `SARVAM_MODE`. |
+| `WATCH_INBOX` | 1 | `0` turns off the default inbox folder. |
+| `WATCH_DIRS` | empty | Extra watched folders (comma-separated absolute paths). |
+| `WATCH_LANG` | en-IN | Target language for watched-folder notes. |
 
 ## Architecture
 
 ```
-phone (motion sensor) -> shared/stroke.js -> POST /api/stroke (batches)
-                                                |
-dashboard -> POST /api/shout (text or audio)    v
-                                        server/index.js
-                                          1. translate (Saaras; Mayura for typed text)
-                                          2. matchMeaning -> one of six meanings, or "not sure"
-                                          3. speak the phrase in targetLang (Bulbul, or Lightning)
-                                          4. broadcast the call over SSE; phone plays the audio
-                                          5. watch stroke events for 8 s, evaluate obedience
-                                          6. broadcast the result, append to the trial table
+a voice note (notch drop, watched folder, share sheet, ingest, mics, typed text)
+              |
+              v
+      server/index.js  POST /api/shout
+        1. three parallel Saaras calls on the same audio:
+           transcribe (ml script) + translit (romanised) + translate (English)
+           typed text: Mayura translation instead
+        2. speak the translation in targetLang (Bulbul, or Lightning)
+        3. archive text fields; broadcast `note` over SSE
+              |
+   GET /events (SSE) ----> notch island, desk, phone page
 ```
 
-Only the translation and speech steps touch a network. The keyword matcher, stroke detector and obedience rule are pure local code with no model and no I/O. The second ear (off by default) transcribes the shout with Pulse in parallel and compares meanings before speaking. All state lives in memory; a restart clears the evidence table. Full module contracts, routes and SSE event shapes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+`GET /api/state`, `/api/providers`, `/api/archive[.json|.csv]`, `POST /api/speak`, `POST /api/phone`, `POST /share` (+ `/share/cut`) round out the surface. All providers are injected for tests; `npm test` runs `node:test` with no network. Full contracts: `docs/ARCHITECTURE.md`, run instructions: `docs/RUNBOOK.md`, demo script: `DEMO.md`.
 
-### APIs used
-
-| API | Model | What it does here | Live calls per shout |
+| API | Model | Role | Calls per audio note |
 |---|---|---|---|
-| Sarvam speech translation | Saaras `saaras:v4`, `translate` mode | Malayalam shout to English text | 1 (audio input) |
-| Sarvam text translation | Mayura | Typed Malayalam call to English, and the second-ear transcript | 1 (typed input; 1 extra when the second ear runs) |
-| Sarvam text to speech | Bulbul v3 | Speaks the meaning in the rower's language | 1 |
-| smallest.ai text to speech | Lightning v3.1 | Optional: second voice, or Malayalam coach playback | 0 by default |
-| smallest.ai transcription | Pulse | Optional: second ear for spoken shouts | 0 by default |
+| Sarvam speech-to-text | Saaras `saaras:v4` | transcribe + translit + translate modes | 3 (parallel) |
+| Sarvam text translation | Mayura | typed text | 1 (typed input only) |
+| Sarvam TTS | Bulbul v3 | speaks the translation | 1 |
+| smallest.ai TTS | Lightning v3.1 | optional second voice | 0 by default |
 
 ## Project structure
 
 ```
-shared/    stroke.js, calls.js, obedience.js, audio-sniff.js, audio-mime.js  pure modules, run in browser and Node
+shared/    audio-sniff.js, audio-mime.js        pure modules, run in browser and Node
 sarvam/    client.js, record-fixtures.js, cache/  Sarvam client and recorded REPLAY fixtures
 smallest/  client.js                            optional smallest.ai client
 server/    index.js, hub.js, qr.js, env.js        server, SSE hub + state, QR, .env loading
-           archive.js, watcher.js, ingest.js      call archive, folder watcher, ingest CLI
-public/    phone.*, dashboard.*, notch.*, vendor/   the pages (vendored files in docs/VENDOR.md)
-notch-app/ NotchApp.swift, Info.plist               macOS notch shell; build output is git-ignored
+           archive.js, watcher.js, ingest.js      archive, folder watcher, ingest CLI
+public/    notch.*, dashboard.*, phone.*          the island page, the desk, the phone mic
+notch-app/ NotchApp.swift, Info.plist             native macOS notch shell (build is git-ignored)
+tools/dragtest/                                   closed-loop real-drag acceptance rig
 test/      node:test suites, no network, no keys
-docs/      ARCHITECTURE.md, RUNBOOK.md, VENDOR.md, devin-tasks/
+docs/      DESIGN.md, DRAG-FINDINGS.md, SARVAM-FINDINGS.md, NOTCH-REFERENCE.md, ARCHITECTURE.md, RUNBOOK.md, KNOWHOW.md, devin-tasks/
 ```
 
 ## Honest limits
 
-- **Not race equipment.** An induction and classroom drill. Nobody should carry a phone as an oar in a boat.
-- **The call table is UNVERIFIED.** Real race calls have not been collected; the six rows are English placeholder phrases and are marked that way in the app. Only three real terms are confirmed to exist (Aanjukuthi, Valicheduthu, Kuthiyerinju; Onmanorama, 25 Aug 2025) and their meanings are unconfirmed, so they are listed but never used for matching.
-- **Shouted Malayalam is untested.** The speech models have been exercised on clean synthetic and typed input, not on a real shouted call from a boat shed. No accuracy figure is claimed.
-- **No speech confidence score.** "Not sure" comes from the keyword matcher, not from the speech model. If the translation is wrong but reads as a clear command, the wrong meaning is spoken; the English text is always shown so the caller can catch it.
-- **Stroke detection is untested on real rowing.** It is air-rowing with a phone; it measures stroke rate only and judges no technique. The obedience thresholds (for example +4 spm for speed up) are documented choices in `shared/calls.js`, tuned on one phone.
-- **Spoken phrases unreviewed.** The six meanings are spoken from a phrase table written at the event; no native speaker of Hindi, Bengali, Odia or Tamil has reviewed them.
-- **LIVE and REPLAY.** Every call and trial is badged. REPLAY means a recorded answer to that exact input from an earlier live call.
-- **Tap-to-row** appears when motion sensing is unavailable and is labelled SIMULATION.
+- **Cloud, not local.** Transcription, translation and voices are Sarvam calls; the audio leaves the Mac. The UI and docs say so.
+- **Machine translation.** It is shown for convenience and labelled as such; it is not a certified translation.
+- **Language, not dialect.** The API reports a language code (usually `ml-IN`); we report exactly that and never invent dialect claims.
+- **Partial results.** If one of the three speech modes fails, the card shows the others and names the missing one — nothing is fabricated.
+- **LIVE and REPLAY.** Every note is badged by lane. REPLAY means a recorded answer to that exact input from an earlier live call.
+- **Real drags need Accessibility permission** for the automated test rig (`tools/dragtest`); the drag itself works without it — only the synthetic test events do.
 
 ## Tracks
 
-- **Primary: Beyond English.** Remove the Malayalam speech and nothing works; the product is the translation of a spoken command for someone who does not know the language.
-- **The Alappuzha Challenge.** A reported local need: rowers from outside Kerala in the Nehru Trophy boat clubs learning the captain's words.
-- **Beyond the Screen.** The input is a shout and a body movement; the phone's motion sensor decides the result.
-
-## How Devin was used
-
-Devin sessions built the modules listed in `CONTRACT.md` (stroke detector, phone page, dashboard) from task briefs prepared before the event, kept in `docs/devin-tasks/`. The builder reviewed the output and did the phone and microphone testing by hand. No product code existed before kickoff; the planning notes and task briefs did.
-
-## What is next
-
-- Collect and verify the real race calls with a boat club.
-- Measure recognition on shouts recorded in a real practice session.
-- Have the spoken phrase table reviewed by native speakers.
+- **Primary: Beyond English.** The product is a spoken Malayalam note becoming text and speech someone else can use; remove the Malayalam speech and nothing works.
+- **The Alappuzha Challenge.** Voice notes are how people actually send Malayalam; the notch is where a Mac user already looks.
+- **Beyond the Screen.** The whole product lives in the notch — no window to find, nothing to manage, drag and done.
 
 ## Socials and Support
 

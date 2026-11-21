@@ -1,32 +1,33 @@
 # AI usage
 
-Built solo at Hackathoni, 21-22 Nov 2026. The repository was created at the event (about 21:30 IST on 21 Nov); no product code existed before that. Design notes and research were prepared earlier the same day with AI assistance.
+Built solo at Hackathoni, 21-22 Nov 2026. The repository was created at the event; no product code existed before that. Design notes and research were prepared earlier the same day with AI assistance.
 
-## Devin (Devin CLI sessions, commits authored as Devin, builder as co-author)
+## Devin (Devin CLI sessions)
 
-| Files | What Devin did |
+| Work | What Devin did |
 |---|---|
-| `shared/stroke.js`, `test/stroke.test.js` | Wrote the stroke detector and its tests |
-| `public/phone.*` | Wrote and later polished the phone page |
-| `public/dashboard.*`, `public/scene.js` | Wrote the laptop dashboard and the 3D snake-boat scene |
-| `README.md`, `DEMO.md` | Wrote the README and demo script from the project docs |
-| `fix(review)` commits | Reviewed the other modules and fixed two defects it found (extreme stroke timestamps, a superseded call with no observation) |
+| `public/notch.*`, `notch-app/NotchApp.swift` | Island page (earlier session) and the current card/shelf/drag UI work |
+| `public/phone.*` | Wrote and later rebuilt the phone page (now hold-to-talk mic only) |
+| `public/dashboard.*` | Wrote the laptop dashboard (now the desk view) |
+| `README.md`, `DEMO.md` | Documentation passes |
+| `fix(review)` commits | Reviewed other modules and fixed two defects it found (extreme timestamps; a superseded call) |
+| `refactor: remove the rowing trainer` | Deleted the earlier rowing-trainer product from code, tests and docs at the builder's direction |
 
 Devin also ran the secret scan, created the repository and pushed it.
 
-## Other modules (not Devin)
+## Other modules
 
-These were written with a separate AI coding assistant under the builder's direction, from a module contract (`CONTRACT.md`) the builder approved. Devin did not write them; it reviewed them and committed them unchanged, so they are authored by the builder in git.
-
-`shared/calls.js`, `shared/obedience.js`, `sarvam/*`, `smallest/*`, `server/*`, their tests, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`, `CONTRACT.md`, and the task briefs in `docs/devin-tasks/`.
+`shared/*`, `sarvam/*`, `smallest/*`, `server/*`, their tests, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`, `CONTRACT.md`, and the task briefs in `docs/devin-tasks/` were written with a separate AI coding assistant under the builder's direction, from a module contract the builder approved.
 
 ## What AI did not do
 
-- It did not collect real rowing calls. The call table holds placeholders (see `shared/calls.js`).
-- The translation, voice and stroke detection run against real services and a real phone, but the system is a classroom drill, not race equipment.
-- Test results (274 passing) are from `npm test`.
+- It did not make the product decisions; the pivot from the earlier drill idea to "Malayalam in the notch" was the builder's call.
+- It did not invent Malayalam: every string shown as Malayalam comes from a Sarvam response.
+- Translation, voices and speech run against real services; output is machine translation and is labelled as such.
+- Test results (`npm test`) are reported as run.
 
 ## Third-party code and services
 
-- three.js r160 (MIT), vendored in `public/vendor/` (see `docs/VENDOR.md`).
-- Sarvam AI (speech translation and speech output) and smallest.ai (speech output), called with the builder's own API keys, which are never committed.
+- No vendored code; the island uses the macOS system font stack (see `docs/VENDOR.md`).
+- Boring Notch (GPL-3.0) was read for placement/motion facts only — `docs/NOTCH-REFERENCE.md`; no code copied.
+- Sarvam AI (speech-to-text, translation, TTS) and smallest.ai (TTS), called with the builder's own API keys, which are never committed.
