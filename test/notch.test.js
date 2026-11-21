@@ -10,8 +10,8 @@ import {
 
 const note = (over = {}) => ({
   noteId: 'note-1', t: 10_000, input: 'audio', origin: 'notch_drop',
-  sourceText: 'വേഗത്തില്‍ ചല്ല്', romanText: 'vegam challu', translatedText: 'Row faster',
-  detectedLanguage: 'ml-IN', spokenText: 'Row faster', spokenLang: 'en-IN',
+  sourceText: 'വേഗത്തില്‍ പോവുക', romanText: 'vegam povuka', translatedText: 'Move faster',
+  detectedLanguage: 'ml-IN', spokenText: 'Move faster', spokenLang: 'en-IN',
   targetLang: 'en-IN', ttsAvailable: true, status: 'ok', failedOps: [], ...over,
 });
 
@@ -49,9 +49,9 @@ test('phaseLine: every state names what is happening', () => {
 // ---- card fields: only what the API returned ----
 test('cardFields: the three lines plus the detected language', () => {
   const f = cardFields(note());
-  assert.equal(f.malayalam, 'വേഗത്തില്‍ ചല്ല്');
-  assert.equal(f.roman, 'vegam challu');
-  assert.equal(f.english, 'Row faster');
+  assert.equal(f.malayalam, 'വേഗത്തില്‍ പോവുക');
+  assert.equal(f.roman, 'vegam povuka');
+  assert.equal(f.english, 'Move faster');
   assert.equal(f.detectedLanguage, 'ml-IN');
   assert.equal(f.malayalamFailed, false);
 });
@@ -60,7 +60,7 @@ test('cardFields: a failed mode is flagged, never fabricated', () => {
   const f = cardFields(note({ romanText: null, failedOps: ['translit'] }));
   assert.equal(f.roman, null);
   assert.equal(f.romanFailed, true);
-  assert.equal(f.english, 'Row faster');
+  assert.equal(f.english, 'Move faster');
   assert.equal(cardFields(null), null);
 });
 
@@ -83,7 +83,7 @@ test('pushShelf: newest first, capped at five, only display fields kept', () => 
   assert.equal(shelf[0].noteId, 'n-7');
   assert.equal(shelf[4].noteId, 'n-3');
   assert.equal('ttsAudioBase64' in shelf[0], false);
-  assert.equal(shelf[0].firstLine, 'Row faster');
+  assert.equal(shelf[0].firstLine, 'Move faster');
   assert.equal(shelf[0].origin, 'notch drop');
   assert.equal(shelf[0].language, 'ml-IN');
 });

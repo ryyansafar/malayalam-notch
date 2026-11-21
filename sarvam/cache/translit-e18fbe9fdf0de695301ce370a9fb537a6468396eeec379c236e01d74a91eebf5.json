@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translit",
+  "key": "e18fbe9fdf0de695301ce370a9fb537a6468396eeec379c236e01d74a91eebf5",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "94b8e996d124dffdc8077438920db75739c20d6f31e1cae48c0e4c5b54d5a960",
+    "audioBytes": 5464,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translit"
+  },
+  "result": {
+    "text": "Vallamkali kaanan njangal vaikunneram varum.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:14:05.297Z"
+}

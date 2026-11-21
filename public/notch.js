@@ -1,528 +1,449 @@
-// rowing-call notch island: SSE-driven Dynamic-Island UI.
-// Pure decisions live in notch-core.js (also run by node:test); this file owns
-// the DOM, the /events stream, audio playback and the native-shell bridge.
-
+// Malayalam in the notch — page controller.
+// Drives the island's size via the native "notch" message channel, listens to
+// /events (SSE), plays translation audio, renders the result card and shelf.
 import {
-  nextPhase, verdictOf, verdictReason, countdown, liveSpm, callOriginBadge,
-  watchLine, shouldCollapse, SHOUT_SOURCE, malayalamOf, COLLAPSE_AFTER_MS,
+  nextPhase, phaseLine, cardFields, pushShelf, chipLine, elapsedSeconds,
+  shouldCollapse, receivedLine, acceptsAudioName, noteOriginBadge, COLLAPSE_AFTER_MS, PHASES,
 } from './notch-core.js';
-import { mimeFromName } from '/shared/audio-mime.js';
+
+const PHASES_SET = new Set(PHASES);
 
 const $ = (id) => document.getElementById(id);
-const els = {
-  island: $('island'), dot: $('dot'), oar: $('oar'), spm: $('spm'),
-  originBadge: $('origin-badge'), callLane: $('call-lane'), ringFg: $('ring-fg'),
-  callMl: $('call-ml'), callText: $('call-text'), callSpoken: $('call-spoken'),
-  callSpm: $('call-spm'), callCount: $('call-count'),
-  verdict: $('verdict'), verdictIcon: $('verdict-icon'), verdictWord: $('verdict-word'),
-  verdictReason: $('verdict-reason'), idleLine: $('idle-line'),
-  err: $('err'), noteStatus: $('note-status'), langs: $('langs'), shout: $('shout'),
-  mic: $('mic'), speaker: $('speaker'), replay: $('replay'), replayCoach: $('replay-coach'),
-  coachLabel: $('coach-label'), coach: $('coach'), quit: $('quit'),
-  watch: $('watch'), archive: $('archive'), dropHint: $('drop-hint'),
+const island = $('island');
+const params = new URLSearchParams(location.search);
+const NOTCH_W = Number(params.get('nw')) || 0;
+
+document.documentElement.style.setProperty('--notch-w', `${NOTCH_W}px`);
+if (!NOTCH_W) $('gap').style.display = 'none';
+
+// ---- native channel ----
+const native = window.webkit?.messageHandlers?.notch
+  ? (msg) => window.webkit.messageHandlers.notch.postMessage(msg)
+  : () => {};
+
+// ---- island geometry: report size to the native shell ----
+const SIZES = {
+  idle:    { w: Math.max(320, NOTCH_W + 120), h: 38 },
+  open:    { w: 560, h: 430 },
+  drag:    { w: 500, h: 190 }, // dashed target lands at y≈48–176: below the Mission Control edge
 };
-
-// Notch geometry from the native shell (?nw=&nh=). Zero width = no notch:
-// the gap collapses and the pill stands alone.
-const qs = new URLSearchParams(location.search);
-const notchW = Number(qs.get('nw')) || 0;
-const notchH = Number(qs.get('nh')) || 32;
-const root = document.documentElement.style;
-root.setProperty('--notch-w', `${Math.max(0, notchW)}px`);
-root.setProperty('--notch-h', `${Math.max(24, notchH)}px`);
-
-const NOTE_MAX_BYTES = 5 * 1024 * 1024, NOTE_MAX_SECONDS = 30;
-const REC_MAX_MS = 25_000, MAX_AUDIO = 8, MAX_STROKES = 600;
-const GRACE_MS = 3000; // keep a call view open this long after its window ends
-const LANG_LABEL = { 'en-IN': 'English', 'hi-IN': 'Hindi', 'bn-IN': 'Bengali', 'od-IN': 'Odia', 'ta-IN': 'Tamil' };
-const VERDICT_ICON = { ok: '✓', bad: '✕', warn: '?' };
-const OUTCOME_LABEL = { obeyed: 'obeyed', not_obeyed: 'not obeyed', not_sure: 'not sure' };
-const OUTCOME_CLS = { obeyed: 'ok', not_obeyed: 'bad', not_sure: 'warn' };
-
-const ui = {
-  phase: 'idle', strokes: [], clockOffset: 0, phone: null,
-  call: null, callUntil: 0, result: null,
-  audioByCallId: new Map(), currentCallAudio: null, coachAudio: null,
-  ownTextByCallId: new Map(), muted: false, busy: false,
-  lastActivity: Date.now(), recording: false, hovered: false, serverUp: false,
-  targetLang: 'hi-IN', es: null, watchDirsLine: null,
-};
-
-const serverNow = () => Date.now() + ui.clockOffset;
-const human = (s) => String(s || '').replace(/_/g, ' ');
-
-// ---------- native-shell bridge ----------
-const bridge = (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.notch) || null;
-const tell = (msg) => { try { bridge && bridge.postMessage(msg); } catch { /* not in the shell */ } };
-
-let sizeQueued = false;
-function reportSize() {
-  if (sizeQueued) return;
-  sizeQueued = true;
-  requestAnimationFrame(() => {
-    sizeQueued = false;
-    const r = els.island.getBoundingClientRect();
-    tell({ type: 'size', w: Math.ceil(r.width), h: Math.ceil(r.height) });
-  });
-}
-
-// ---------- phases & collapse ----------
-function setPhase(phase) {
-  ui.phase = phase;
-  els.island.classList.toggle('phase-call', phase === 'call');
-  els.island.classList.toggle('phase-verdict', phase === 'verdict');
-  els.island.classList.toggle('phase-idle', phase === 'idle');
-}
-
-function expand() {
-  if (!els.island.classList.contains('expanded')) {
-    els.island.classList.add('expanded');
-    els.island.classList.remove('idle');
-    reportSize();
-  }
-  ui.lastActivity = Date.now();
-}
-
-function collapse() {
-  if (!els.island.classList.contains('expanded')) return;
-  els.island.classList.remove('expanded');
-  els.island.classList.add('idle');
-  setPhase('idle');
-  reportSize();
-}
-
-function tickCollapse() {
-  const open = els.island.classList.contains('expanded');
-  if (!open) return;
-  const callOpen = ui.phase === 'call' && Date.now() < ui.callUntil;
-  const focused = els.island.contains(document.activeElement) && document.activeElement !== document.body;
-  if (shouldCollapse(Date.now(), ui.lastActivity, { focused, recording: ui.recording, callOpen: callOpen || ui.hovered })) collapse();
-}
-
-// ---------- rendering ----------
-function renderDot() {
-  const on = ui.phone && ui.phone.connected;
-  els.dot.classList.toggle('on', Boolean(on) && ui.serverUp);
-  els.dot.classList.toggle('offline', !ui.serverUp);
-  els.island.classList.toggle('offline', !ui.serverUp);
-  els.dot.title = !ui.serverUp ? 'waiting for server' : on ? 'phone connected' : 'phone not connected';
-}
-
-function renderSpm() {
-  const spm = liveSpm(ui.strokes, serverNow());
-  els.spm.textContent = String(spm);
-  els.spm.classList.toggle('dim', spm === 0);
-  els.callSpm.textContent = String(spm);
-  // The oar pulses faster as the rate climbs: 40 spm ≈ one beat per stroke.
-  if (spm > 0) {
-    els.oar.classList.add('row');
-    els.oar.style.setProperty('--oar-ms', `${Math.max(300, Math.round(60_000 / Math.max(1, spm)))}ms`);
-  } else els.oar.classList.remove('row');
-}
-
-function renderCall(c) {
-  const ml = malayalamOf(c) || (c && c.callId ? ui.ownTextByCallId.get(c.callId) : null);
-  els.callMl.hidden = !ml;
-  els.callMl.textContent = ml || '';
-  els.callText.textContent = (c && c.translatedText) || '(nothing translated)';
-  els.callSpoken.textContent = c && c.spokenText ? `“${c.spokenText}”` : '';
-  const origin = callOriginBadge(c);
-  els.originBadge.hidden = !origin;
-  els.originBadge.textContent = origin || '';
-  els.callLane.hidden = !(c && c.source);
-  els.callLane.textContent = c && c.source === 'live' ? 'LIVE' : 'REPLAY';
-  els.callLane.className = `badge ${c && c.source === 'live' ? 'live' : 'replay'}`;
-}
-
-function renderVerdict(r) {
-  const v = verdictOf(r);
-  els.verdict.className = `verdict ${v.cls}`;
-  els.verdictIcon.textContent = VERDICT_ICON[v.cls];
-  els.verdictWord.textContent = v.word;
-  els.verdictReason.textContent = verdictReason(r);
-}
-
-function renderWatch(state) {
-  const line = watchLine(state) || ui.watchDirsLine;
-  els.watch.hidden = !line;
-  els.watch.textContent = line || '';
-}
-
-function renderLangs(langs) {
-  const list = Array.isArray(langs) && langs.length ? langs : Object.keys(LANG_LABEL);
-  if (!list.includes(ui.targetLang)) ui.targetLang = list.includes('hi-IN') ? 'hi-IN' : list[0];
-  els.langs.textContent = '';
-  for (const lang of list) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'chip';
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(lang === ui.targetLang));
-    b.classList.toggle('on', lang === ui.targetLang);
-    b.textContent = LANG_LABEL[lang] || lang;
-    b.addEventListener('click', () => { ui.targetLang = lang; renderLangs(list); });
-    els.langs.appendChild(b);
+let open = false;
+let w = 0, h = 0;
+let shrinkTimer = null;
+const root = document.documentElement;
+// Fixed-window technique (as in the best notch apps): the native window jumps to the
+// needed size instantly, the island morphs inside it. Growing: window first, then the
+// morph. Shrinking: morph first, then the window after the spring has settled.
+function morphTo(size) {
+  if (size.w === w && size.h === h) return;
+  const growing = !w || size.h >= h;
+  const wasOpen = h > 60;
+  w = size.w; h = size.h;
+  const isOpen = h > 60;
+  clearTimeout(shrinkTimer);
+  const apply = () => {
+    root.classList.toggle('opening', isOpen);
+    root.style.setProperty('--w', `${w}px`);
+    root.style.setProperty('--h', `${h}px`);
+    root.style.setProperty('--r', isOpen ? '24px' : '14px');   // bottom radius (open 24 / closed 14)
+    root.style.setProperty('--tr', isOpen ? '19px' : '6px');   // concave top radius (open 19 / closed 6)
+  };
+  if (growing) {
+    native({ type: 'size', w, h });
+    requestAnimationFrame(() => requestAnimationFrame(apply));
+  } else {
+    apply();
+    shrinkTimer = setTimeout(() => native({ type: 'size', w, h }), wasOpen ? 560 : 0);
   }
 }
 
-function renderArchive(entries) {
-  els.archive.textContent = '';
-  for (const e of entries.slice(0, 4)) {
+function setOpen(on) {
+  if (on === open) return;
+  open = on;
+  island.classList.toggle('open', on);
+  morphTo(on ? SIZES.open : SIZES.idle);
+  native({ type: 'hover', on });
+}
+
+// ---- state ----
+let state = { langs: [], phone: { connected: false }, lastNote: null };
+let phase = 'idle';
+let shelf = [];
+let collapseTimer = null;
+let elapsedTimer = null;
+let busySince = 0;
+let muted = localStorage.getItem('notch-muted') === '1';
+let targetLang = localStorage.getItem('notch-lang') || '';
+let currentNote = null;
+let audio = null;
+
+function renderBar() {
+  // Wings are narrow: idle shows the day's count, busy shows elapsed seconds.
+  if (phase === 'received' || phase === 'translating') {
+    $('count').textContent = `${elapsedSeconds(Date.now(), busySince)}s`;
+  } else {
+    $('count').textContent = String(todayCount);
+  }
+  $('bar-line').textContent = '';
+}
+let todayCount = 0;
+
+let resultAt = 0;
+function armCollapse() {
+  clearTimeout(collapseTimer);
+  collapseTimer = setTimeout(() => {
+    if (shouldCollapse(Date.now(), resultAt, { focused: document.activeElement === $('typed'), recording: phase === 'recording' })) setPhase('reset');
+  }, COLLAPSE_AFTER_MS);
+}
+
+function setPhase(p, note) {
+  phase = PHASES_SET.has(p) ? p : nextPhase(phase, p, note);
+  island.classList.toggle('busy', phase === 'translating' || phase === 'received' || phase === 'recording');
+  island.classList.remove('dragover');
+  clearInterval(elapsedTimer);
+  $('status').textContent = '';
+  $('shimmer').hidden = true;
+  $('err').hidden = true;
+
+  if (phase === 'idle') {
+    $('card').hidden = true;
+    $('v-idle').hidden = false;
+    $('controls').hidden = false;
+    setOpen(openHover);
+  } else if (phase === 'received' || phase === 'translating') {
+    busySince = Date.now();
+    setOpen(true);
+    $('v-idle').hidden = true;
+    $('card').hidden = true;
+    $('controls').hidden = true;
+    $('status').innerHTML = phase === 'received'
+      ? receivedLine(note || {}) : `${phaseLine(phase)} <span class="elapsed">0 s</span>`;
+    if (phase === 'translating') $('shimmer').hidden = false;
+    elapsedTimer = setInterval(() => {
+      renderBar();
+      const el = $('status').querySelector('.elapsed');
+      if (el) el.textContent = `${elapsedSeconds(Date.now(), busySince)} s`;
+    }, 500);
+  } else if (phase === 'result') {
+    setOpen(true);
+    $('v-idle').hidden = true;
+    $('card').hidden = false;
+    $('controls').hidden = false;
+    renderCard(note);
+    resultAt = Date.now();
+    armCollapse();
+  } else if (phase === 'error') {
+    setOpen(true);
+    $('v-idle').hidden = false;
+    $('controls').hidden = false;
+    resultAt = Date.now();
+    armCollapse();
+  }
+  renderBar();
+}
+
+function renderCard(note) {
+  const f = cardFields(note);
+  if (!f) { $('card').hidden = true; return; }
+  const b = noteOriginBadge(note);
+  $('origin-badge').hidden = !b;
+  $('origin-badge').textContent = b || '';
+  $('lang-badge').hidden = !f.detectedLanguage;
+  $('lang-badge').textContent = f.detectedLanguage || '';
+  $('lang-badge').classList.add('lang');
+  $('meta').textContent = 'just now';
+  $('ml').textContent = f.malayalamFailed ? 'transcription not available' : (f.malayalam || '');
+  $('ml').hidden = !f.malayalam && !f.malayalamFailed;
+  $('roman').textContent = f.romanFailed ? 'romanisation not available' : (f.roman || '');
+  $('roman').hidden = !f.roman && !f.romanFailed;
+  $('en').textContent = f.englishFailed ? 'translation not available' : (f.english || '');
+  $('en').hidden = !f.english && !f.englishFailed;
+  const speakBtn = $('speak');
+  speakBtn.textContent = `Speak in ${langName(note.targetLang || targetLang || 'en-IN')}`;
+  speakBtn.disabled = !f.english;
+  currentNote = note;
+}
+
+// ---- shelf ----
+function renderShelf() {
+  const ul = $('shelf');
+  ul.textContent = '';
+  for (const n of shelf) {
     const li = document.createElement('li');
-    const src = document.createElement('span');
-    src.className = 'badge dim';
-    src.textContent = human(e.source) || 'call';
-    li.appendChild(src);
-    const lang = document.createElement('span');
-    lang.className = 'badge dim';
-    lang.textContent = e.language || '—';
-    li.appendChild(lang);
-    const text = document.createElement('span');
-    text.className = 'a-text';
-    text.textContent = e.text || e.filename || '(no text)';
-    li.appendChild(text);
-    const verdict = document.createElement('span');
-    const cls = e.verdict ? OUTCOME_CLS[e.verdict] || 'warn' : 'pending';
-    verdict.className = `a-verdict ${cls}`;
-    verdict.textContent = e.verdict ? OUTCOME_LABEL[e.verdict] || human(e.verdict) : 'pending';
-    if (e.reason) verdict.title = e.reason;
-    li.appendChild(verdict);
-    els.archive.appendChild(li);
+    li.className = 'chip-row';
+    li.draggable = true;
+    const src = document.createElement('span'); src.className = 'src'; src.textContent = n.origin || 'note';
+    const txt = document.createElement('span'); txt.className = 'txt'; txt.textContent = chipLine(n);
+    const lang = document.createElement('span'); lang.className = 'lang'; lang.textContent = n.language || '';
+    const ago = document.createElement('span'); ago.className = 'ago'; ago.textContent = relTime(n.t);
+    const speakB = document.createElement('button'); speakB.type = 'button'; speakB.textContent = 'speak'; speakB.title = 'Speak this translation again';
+    speakB.addEventListener('click', (e) => { e.stopPropagation(); speakEntry(n); });
+    const copyB = document.createElement('button'); copyB.type = 'button'; copyB.textContent = 'copy'; copyB.title = 'Copy translation';
+    copyB.addEventListener('click', (e) => { e.stopPropagation(); navigator.clipboard?.writeText(n.firstLine || ''); });
+    li.append(src, txt, lang, ago, speakB, copyB);
+    li.addEventListener('dragstart', (e) => {
+      li.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', n.firstLine || '');
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('click', () => {
+      currentNote = { translatedText: n.firstLine, sourceText: n.sourceText, romanText: n.romanText, detectedLanguage: n.language, origin: n.origin, targetLang: n.targetLang };
+      setPhase('result', currentNote);
+    });
+    ul.append(li);
+  }
+}
+function relTime(t) {
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h`;
+}
+
+// ---- audio ----
+function playNote(note) {
+  if (muted || !note?.ttsAudioBase64) return;
+  audio?.pause();
+  audio = new Audio(`data:${note.mime || 'audio/wav'};base64,${note.ttsAudioBase64}`);
+  audio.play().catch(() => {});
+}
+async function speakEntry(entry) {
+  const text = entry.firstLine || entry.translatedText;
+  if (!text) return;
+  const r = await post('/api/speak', { text, targetLang: targetLang || 'en-IN' });
+  if (r?.ttsAudioBase64 && !muted) {
+    new Audio(`data:${r.mime || 'audio/wav'};base64,${r.ttsAudioBase64}`).play().catch(() => {});
   }
 }
 
-// ---------- audio out ----------
-function stashAudio(c) {
-  if (c && c.ttsAudioBase64 && c.mime && c.callId) {
-    ui.audioByCallId.set(c.callId, { b64: c.ttsAudioBase64, mime: c.mime });
-    while (ui.audioByCallId.size > MAX_AUDIO) ui.audioByCallId.delete(ui.audioByCallId.keys().next().value);
-  }
-  ui.currentCallAudio = (c && c.callId && ui.audioByCallId.get(c.callId)) || null;
-  els.replay.disabled = !ui.currentCallAudio;
+// ---- server ----
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j?.error?.message || r.statusText); e.code = j?.error?.code; throw e; }
+  return j;
 }
 
-function playAudio(a) {
-  if (!a) return;
-  new Audio(`data:${a.mime};base64,${a.b64}`).play().catch(() => setErr('Audio playback was blocked.', 'warn'));
-}
-
-// ---------- shout path ----------
 async function sendShout(body) {
-  const res = await fetch('/api/shout', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  return { ok: res.ok && data && data.ok !== false, status: res.status, data };
-}
-
-// Preferred notch source first; when the running server rejects it, retry
-// once with the closest canonical source so the call still lands.
-async function postShout(payload, kind) {
-  const src = SHOUT_SOURCE[kind] || { preferred: null, fallback: null };
-  const base = { targetLang: ui.targetLang, ...payload };
-  let out = await sendShout(src.preferred ? { ...base, source: src.preferred } : base);
-  const code = out.data && out.data.error && out.data.error.code;
-  if (!out.ok && code === 'invalid_source' && src.fallback) {
-    out = await sendShout({ ...base, source: src.fallback });
-  }
-  return out;
-}
-
-function setErr(text, cls = 'bad') {
-  els.err.hidden = !text;
-  els.err.textContent = text || '';
-  els.err.className = `status ${cls}`;
-  if (text) { ui.lastActivity = Date.now(); setTimeout(() => { if (els.err.textContent === text) els.err.hidden = true; }, 8000); }
-}
-
-function setNote(text, cls = 'muted') {
-  els.noteStatus.hidden = !text;
-  els.noteStatus.textContent = text || '';
-  els.noteStatus.className = `status ${cls}`;
-}
-
-function handleShoutResult(out, typedText) {
-  if (!out.ok || !out.data) {
-    const msg = (out.data && out.data.error && out.data.error.message) || `HTTP ${out.status || '—'}`;
-    setErr(out.status === 0 ? 'Shout failed: could not reach the server.' : `Shout failed: ${msg}`);
-    return;
-  }
-  const data = out.data;
-  if (data.coachAudioBase64) {
-    ui.coachAudio = { b64: data.coachAudioBase64, mime: data.coachMime || 'audio/wav' };
-    els.replayCoach.disabled = false;
-    if (!ui.muted) playAudio(ui.coachAudio);
-  }
-  if (data.status === 'not_sure') { onResult(data); return; }
-  if (data.callId && typedText) {
-    ui.ownTextByCallId.set(data.callId, typedText);
-    while (ui.ownTextByCallId.size > 20) ui.ownTextByCallId.delete(ui.ownTextByCallId.keys().next().value);
-  }
-  onCall(data); // same record as the SSE call event; idempotent
-  loadArchive();
-}
-
-async function sendText() {
-  const text = els.shout.value.trim();
-  if (!text || ui.busy) return;
-  els.shout.value = '';
-  ui.busy = true;
-  setErr('');
+  setPhase('received', { filename: body.filename });
+  setPhase('translating');
   try {
-    const out = await postShout({ text, coachPlayback: els.coach.checked || undefined }, 'text');
-    handleShoutResult(out, text);
-  } catch {
-    setErr('Shout failed: could not reach the server.');
-  } finally {
-    ui.busy = false;
+    const note = await post('/api/shout', { targetLang: targetLang || 'en-IN', ...body });
+    setPhase('result', note);
+    shelf = pushShelf(shelf, note);
+    renderShelf();
+    playNote(note);
+  } catch (e) {
+    $('err').textContent = `Couldn't translate — ${e.message}. Try again.`;
+    $('err').hidden = false;
+    setPhase('error');
   }
 }
 
-// ---------- microphone in ----------
-let rec = null;
+// ---- SSE ----
+const es = new EventSource('/events');
+es.addEventListener('state', (e) => {
+  state = JSON.parse(e.data);
+  todayCount = state.lastNote ? todayCount : todayCount; // count comes from archive below
+  renderLangs();
+  renderBar();
+});
+es.addEventListener('received', () => { if (phase === 'idle') setPhase('received'); });
+es.addEventListener('note', (e) => {
+  const note = JSON.parse(e.data);
+  setPhase('result', note);
+  shelf = pushShelf(shelf, note);
+  renderShelf();
+  playNote(note);
+});
+es.addEventListener('error', () => { if (phase === 'idle') $('bar-line').textContent = 'waiting for server'; });
 
-const pickMime = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
-  .find((m) => MediaRecorder.isTypeSupported(m)) || '';
-
-function micUnavailable(reason) {
-  els.mic.hidden = true;
-  setNote(`hold-to-talk unavailable: ${reason}`, 'warn');
-}
-
-async function startRecording() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
-    return micUnavailable('this build cannot open the microphone');
-  }
-  let stream;
+async function refreshCount() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    return micUnavailable('macOS refused the microphone — allow it once under System Settings → Privacy & Security → Microphone');
-  }
-  const mime = pickMime();
-  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  const chunks = [];
-  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  mr.onstop = () => {
-    const blob = new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' });
-    finishRecording();
-    if (!blob.size) return setErr('Nothing was recorded.', 'warn');
-    blob.arrayBuffer().then((buf) => postShout({ audioBase64: toBase64(buf), mime: blob.type }, 'mic')
-      .then((out) => handleShoutResult(out, null))
-      .catch(() => setErr('Could not send the recording.')));
-  };
-  rec = { mr, stream, autoStop: setTimeout(stopRecording, REC_MAX_MS) };
-  ui.recording = true;
-  expand();
-  els.mic.classList.add('rec');
-  els.mic.textContent = 'recording… tap to send';
-  mr.start(250);
-}
-
-function stopRecording() { if (rec && rec.mr.state !== 'inactive') rec.mr.stop(); }
-
-function finishRecording() {
-  if (!rec) return;
-  clearTimeout(rec.autoStop);
-  for (const track of rec.stream.getTracks()) track.stop();
-  rec = null;
-  ui.recording = false;
-  ui.lastActivity = Date.now();
-  els.mic.classList.remove('rec');
-  els.mic.textContent = 'hold to talk';
-}
-
-// ---------- voice-note drop ----------
-function probeDuration(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const done = (sec) => { URL.revokeObjectURL(url); resolve(sec); };
-    const audio = new Audio();
-    audio.preload = 'metadata';
-    audio.addEventListener('loadedmetadata', () => done(Number.isFinite(audio.duration) ? audio.duration : null));
-    audio.addEventListener('error', () => done(null));
-    audio.src = url;
-    setTimeout(() => done(null), 4000);
-  });
-}
-
-async function sendNote(file) {
-  if (file.size > NOTE_MAX_BYTES) return setErr(`"${file.name}" is ${(file.size / 1e6).toFixed(1)} MB — the limit is 5 MB.`);
-  setNote(`Checking "${file.name}"…`);
-  const seconds = await probeDuration(file);
-  if (seconds !== null && seconds > NOTE_MAX_SECONDS) {
-    return setErr(`"${file.name}" is about ${Math.round(seconds)} s — speech-to-text accepts clips up to 30 s.`);
-  }
-  try {
-    const buf = await file.arrayBuffer();
-    setNote(`Sending "${file.name}"…`);
-    const out = await postShout({ audioBase64: toBase64(buf), mime: mimeFromName(file.name, file.type), filename: file.name }, 'drop');
-    handleShoutResult(out, null);
-    setNote(`"${file.name}" sent as a voice note.`, 'ok');
-  } catch {
-    setErr(`Could not read "${file.name}".`);
-  }
-}
-
-function toBase64(buf) {
-  const bytes = new Uint8Array(buf);
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(out);
-}
-
-// ---------- archive ----------
-async function loadArchive() {
-  const res = await fetch('/api/archive').catch(() => null);
-  const data = res && res.ok ? await res.json().catch(() => null) : null;
-  if (data && data.ok && Array.isArray(data.entries)) renderArchive(data.entries);
-}
-
-// ---------- events ----------
-function onCall(c) {
-  if (!c || typeof c !== 'object' || c.status !== 'ok' || !c.meaning) return;
-  ui.call = c;
-  ui.result = null;
-  ui.callUntil = Date.now() + (Number.isFinite(c.windowMs) ? c.windowMs : 8000) + GRACE_MS;
-  stashAudio(c);
-  renderCall(c);
-  setPhase('call');
-  expand();
-  if (!ui.muted && ui.currentCallAudio) playAudio(ui.currentCallAudio);
-}
-
-function onResult(r) {
-  if (!r || typeof r !== 'object') return;
-  ui.result = r;
-  ui.call = null;
-  ui.callUntil = 0;
-  renderVerdict(r);
-  setPhase('verdict');
-  expand();
-  ui.lastActivity = Date.now();
-  loadArchive();
-}
-
-function applyState(s) {
-  if (!s || typeof s !== 'object') return;
-  if (Number.isFinite(s.serverT)) ui.clockOffset = s.serverT - Date.now();
-  if (s.phone) { ui.phone = s.phone; renderDot(); }
-  if (Array.isArray(s.recentStrokes)) mergeStrokes(s.recentStrokes);
-  if (s.langs) renderLangs(s.langs);
-  renderWatch(s);
-  // A page that opened after a call/result still shows what it missed.
-  if (s.lastCall && (!ui.call || s.lastCall.callId !== ui.call.callId) && !ui.result) {
-    const age = serverNow() - (s.lastCall.t || 0);
-    if (age < (s.lastCall.windowMs || 8000) + GRACE_MS) {
-      ui.call = s.lastCall; ui.callUntil = Date.now() + (s.lastCall.windowMs || 8000) + GRACE_MS - age;
-      stashAudio(s.lastCall); renderCall(s.lastCall); setPhase('call'); expand();
+    const r = await fetch('/api/archive.json');
+    const j = await r.json();
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    todayCount = j.entries.filter((e) => new Date(e.time) >= midnight).length;
+    if (!shelf.length) {
+      shelf = j.entries.slice(0, 5).map((e) => ({
+        noteId: e.id, t: new Date(e.time).getTime(), origin: e.source,
+        language: e.language, firstLine: (e.text || '').split('\n')[0],
+        sourceText: e.transcript, romanText: e.roman,
+      }));
+      renderShelf();
     }
+  } catch { /* server starting */ }
+  renderBar();
+}
+refreshCount();
+
+// ---- language chips ----
+const LANG_NAME = { 'en-IN': 'English', 'hi-IN': 'Hindi', 'bn-IN': 'Bengali', 'od-IN': 'Odia', 'ta-IN': 'Tamil' };
+const langName = (code) => LANG_NAME[code] || code;
+function renderLangs() {
+  const box = $('langs');
+  box.textContent = '';
+  const codes = state.langs.map((l) => (typeof l === 'string' ? l : l.code));
+  if (!codes.length) return;
+  if (!codes.includes(targetLang)) targetLang = codes[0];
+  for (const code of codes) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(code === targetLang));
+    b.textContent = langName(code);
+    b.addEventListener('click', () => {
+      targetLang = code;
+      localStorage.setItem('notch-lang', code);
+      renderLangs();
+      if (currentNote) renderCard(currentNote);
+    });
+    box.append(b);
   }
-  if (s.lastResult && !ui.result) { ui.result = s.lastResult; renderVerdict(s.lastResult); }
 }
 
-function mergeStrokes(events) {
-  const byT = new Map(ui.strokes.map((s) => [s.t, s]));
-  for (const e of events) if (Number.isFinite(e.t)) byT.set(e.t, e);
-  ui.strokes = [...byT.values()].sort((a, b) => a.t - b.t).slice(-MAX_STROKES);
-}
+// ---- interactions ----
+let openHover = false;
+island.addEventListener('mouseenter', () => { openHover = true; if (phase === 'idle' || phase === 'result') setOpen(true); });
+island.addEventListener('mouseleave', () => { openHover = false; if (phase === 'idle' && !document.querySelector('.chip-row.dragging')) setPhase('idle'); });
 
-function connect() {
-  if (ui.es) ui.es.close();
-  ui.es = new EventSource('/events');
-  ui.es.onopen = () => { ui.serverUp = true; renderDot(); };
-  ui.es.onerror = () => {
-    ui.serverUp = false; renderDot();
-    if (ui.es.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
-  };
-  const dispatch = {
-    state: applyState,
-    stroke: (e) => { if (e && Number.isFinite(e.t)) mergeStrokes([e]); },
-    call: onCall,
-    result: onResult,
-    phone: (p) => { ui.phone = p; renderDot(); },
-  };
-  for (const [name, fn] of Object.entries(dispatch)) {
-    ui.es.addEventListener(name, (e) => { try { fn(JSON.parse(e.data)); } catch { /* malformed event: ignore */ } });
-  }
-}
-
-// ---------- countdown ring + clock ----------
-const RING_LEN = 100;
-function tick() {
-  renderSpm();
-  renderDot();
-  if (ui.phase === 'call' && ui.call) {
-    const left = countdown(serverNow(), ui.call.t, ui.call.windowMs || 8000);
-    els.ringFg.style.strokeDashoffset = String(RING_LEN * (1 - left));
-    els.callCount.textContent = (left * (ui.call.windowMs || 8000) / 1000).toFixed(1);
-  }
-  tickCollapse();
-}
-
-// ---------- providers (coach playback + watched folders) ----------
-fetch('/api/providers').then((r) => (r.ok ? r.json() : null)).then((info) => {
-  if (!info) return;
-  els.coachLabel.hidden = !info.coachPlayback;
-  // The voice-note folder watcher reports its folders here when it is enabled.
-  if (Array.isArray(info.watchDirs) && info.watchDirs.length) {
-    const dirs = info.watchDirs.map((d) => String(d).replace(/^\/Users\/[^/]+/, '~'));
-    ui.watchDirsLine = `watching ${dirs.join(', ')}`;
-    renderWatch(null);
-  }
-}).catch(() => {});
-
-// ---------- wiring ----------
-els.island.addEventListener('mouseenter', () => { ui.hovered = true; tell({ type: 'hover', on: true }); expand(); });
-els.island.addEventListener('mouseleave', () => { ui.hovered = false; ui.lastActivity = Date.now(); tell({ type: 'hover', on: false }); });
-els.island.addEventListener('focusin', () => { ui.lastActivity = Date.now(); });
-els.island.addEventListener('focusout', () => { ui.lastActivity = Date.now(); });
-els.island.addEventListener('pointerdown', () => { ui.lastActivity = Date.now(); }, true);
-
-els.shout.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); sendText(); }
+// drag a voice note onto the island (inside the page; the native shell also
+// has an always-on drop zone that posts directly and emits "note" via SSE)
+island.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  if (![...e.dataTransfer.types].includes('Files')) return;
+  island.classList.add('dragover');
+  setOpen(true);
+  morphTo(SIZES.drag, { r: 32 });
 });
-els.mic.addEventListener('pointerdown', (e) => { if (!rec) { e.preventDefault(); startRecording(); } });
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
-  els.mic.addEventListener(ev, () => { if (rec) stopRecording(); });
+island.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+island.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget && island.contains(e.relatedTarget)) return;
+  island.classList.remove('dragover');
+  if (phase === 'idle') morphTo(SIZES.open, { r: 32 });
+});
+island.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  island.classList.remove('dragover');
+  const file = [...(e.dataTransfer?.files || [])].find((f) => acceptsAudioName(f.name));
+  if (!file) { $('err').textContent = 'That file is not audio — drop .opus, .ogg, .m4a, .mp3 or .wav.'; $('err').hidden = false; setPhase('error'); return; }
+  const buf = await file.arrayBuffer();
+  sendShout({
+    audioBase64: btoa(String.fromCharCode(...new Uint8Array(buf))),
+    mime: file.type || 'audio/ogg',
+    filename: file.name,
+    source: 'notch_drop',
+  });
+});
+
+// typed Malayalam
+$('typed').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target.value.trim()) return;
+  sendShout({ text: e.target.value.trim(), source: 'text' });
+  e.target.value = '';
+});
+$('typed').addEventListener('focus', () => { openHover = true; setOpen(true); });
+
+// hold to talk (Mac mic)
+let rec = null, recChunks = [], recTimer = null;
+async function startRec() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    rec = new MediaRecorder(stream);
+    recChunks = [];
+    rec.ondataavailable = (e) => recChunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(recChunks, { type: rec.mimeType });
+      const buf = await blob.arrayBuffer();
+      sendShout({ audioBase64: btoa(String.fromCharCode(...new Uint8Array(buf))), mime: blob.type || 'audio/webm', source: 'mic' });
+    };
+    rec.start();
+    phase = 'recording';
+    island.classList.add('busy');
+    busySince = Date.now();
+    $('status').innerHTML = 'Recording <span class="elapsed">0 s</span>';
+    setOpen(true);
+    recTimer = setInterval(() => renderBar(), 500);
+    setTimeout(() => { if (rec?.state === 'recording') rec.stop(); }, 25000);
+  } catch {
+    $('err').textContent = 'No microphone — check macOS permissions for this app.';
+    $('err').hidden = false;
+    setPhase('error');
+  }
 }
-els.mic.addEventListener('keydown', (e) => {
-  if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
-    e.preventDefault();
-    if (rec) stopRecording(); else startRecording();
+function stopRec() {
+  if (rec?.state === 'recording') { rec.stop(); }
+  clearInterval(recTimer);
+}
+$('mic').addEventListener('pointerdown', startRec);
+addEventListener('pointerup', stopRec);
+$('mic').addEventListener('keydown', (e) => { if (e.key === ' ' && rec?.state !== 'recording') startRec(); });
+$('mic').addEventListener('keyup', (e) => { if (e.key === ' ') stopRec(); });
+
+$('speak').addEventListener('click', () => { if (currentNote) playNote(currentNote.ttsAudioBase64 ? currentNote : currentNote); });
+$('copy').addEventListener('click', () => { if (currentNote?.translatedText) navigator.clipboard?.writeText(currentNote.translatedText); });
+$('mute').addEventListener('click', () => {
+  muted = !muted;
+  localStorage.setItem('notch-muted', muted ? '1' : '0');
+  $('mute').textContent = muted ? 'muted' : 'sound on';
+  $('mute').setAttribute('aria-pressed', String(muted));
+  if (muted) audio?.pause();
+});
+$('mute').textContent = muted ? 'muted' : 'sound on';
+$('mute').setAttribute('aria-pressed', String(muted));
+
+// right-click menu: Quit / Mute / Open desk
+island.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  showMenu(e.clientX, e.clientY);
+});
+let menu = null;
+function showMenu(x, y) {
+  hideMenu();
+  menu = document.createElement('div');
+  menu.id = 'ctxmenu';
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y + 8}px;z-index:9;background:#141414;border:1px solid #2a2a28;border-radius:10px;padding:4px;font:13px -apple-system,sans-serif;`;
+  const items = [
+    ['Open desk', () => { window.open('/dashboard.html'); }],
+    [muted ? 'Unmute' : 'Mute', () => $('mute').click()],
+    ['Quit', () => native({ type: 'quit' })],
+  ];
+  for (const [label, fn] of items) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'display:block;width:140px;text-align:left;background:none;border:none;color:#f2f2ee;padding:8px 10px;border-radius:6px;cursor:pointer;font:inherit;';
+    b.onmouseenter = () => { b.style.background = '#2a2a28'; };
+    b.onmouseleave = () => { b.style.background = 'none'; };
+    b.onclick = () => { hideMenu(); fn(); };
+    menu.append(b);
+  }
+  document.body.append(menu);
+}
+function hideMenu() { menu?.remove(); menu = null; }
+addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target)) hideMenu(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { hideMenu(); if (phase === 'result') setPhase('idle'); } });
+
+// native shell messages: drag state, early drop notice, native errors
+addEventListener('notch-native', (e) => {
+  const d = e.detail || {};
+  if (d.type === 'drag') {
+    island.classList.toggle('dragover', !!d.on);
+    if (d.on) { setOpen(true); morphTo(SIZES.drag, { r: 32 }); $('drop-file').textContent = d.filename || ''; }
+    else if (phase === 'idle') morphTo(openHover ? SIZES.open : SIZES.idle, { r: openHover ? 32 : 14 });
+  } else if (d.type === 'nativeDrop') {
+    setPhase('received', { filename: d.filename });
+    setPhase('translating'); // the result arrives over SSE as a "note"
+  } else if (d.type === 'nativeError') {
+    $('err').textContent = `${d.message}. Try again.`;
+    $('err').hidden = false;
+    setPhase('error');
+  } else if (d.type === 'hoverNear') {
+    openHover = !!d.on;
+    if (phase === 'idle' || phase === 'result') setOpen(openHover);
   }
 });
-els.speaker.addEventListener('click', () => {
-  ui.muted = !ui.muted;
-  els.speaker.textContent = ui.muted ? 'muted' : 'sound on';
-  els.speaker.setAttribute('aria-pressed', String(!ui.muted));
-});
-els.replay.addEventListener('click', () => playAudio(ui.currentCallAudio));
-els.replayCoach.addEventListener('click', () => playAudio(ui.coachAudio));
-els.quit.addEventListener('click', () => { tell({ type: 'quit' }); window.close(); });
 
-for (const ev of ['dragenter', 'dragover']) {
-  els.island.addEventListener(ev, (e) => { e.preventDefault(); expand(); els.island.classList.add('over'); });
-}
-for (const ev of ['dragleave', 'drop']) {
-  els.island.addEventListener(ev, (e) => { e.preventDefault(); if (ev === 'drop' || !els.island.contains(e.relatedTarget)) els.island.classList.remove('over'); });
-}
-els.island.addEventListener('drop', (e) => {
-  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (file) sendNote(file);
-});
-for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
-
-// ---------- init ----------
-fetch('/api/state').then((r) => (r.ok ? r.json() : null)).then((s) => {
-  ui.serverUp = Boolean(s);
-  applyState(s);
-  renderDot();
-  reportSize();
-}).catch(() => { ui.serverUp = false; renderDot(); });
-renderLangs(null);
-loadArchive();
-connect();
-setInterval(tick, 250);
-tick();
-reportSize();
+// boot: collapsed pill
+morphTo(SIZES.idle);
+$('bar').removeAttribute('aria-hidden');

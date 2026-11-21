@@ -3,20 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rowing-call · dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230a0a0a'/><circle cx='8' cy='8' r='4' fill='%23e0a030'/></svg>">
+<title>Malayalam in the notch · desk</title>
 <link rel="stylesheet" href="dashboard.css">
 <script src="dashboard.js" type="module"></script>
 </head>
 <body>
 
-<canvas id="scene" aria-hidden="true"></canvas>
-<div class="veil" aria-hidden="true"></div>
-
 <header class="hud top">
   <div class="title">
-    <h1>rowing-call</h1>
-    <p class="muted">control screen — the phone is the oar</p>
+    <h1>Malayalam in the notch</h1>
+    <p class="muted">the desk — drop a voice note, browse the archive</p>
   </div>
   <div class="badges" aria-label="status">
     <span id="mode-badge" class="badge dim" title="Sarvam translation mode">mode —</span>
@@ -24,88 +20,17 @@
     <span id="sse-badge" class="badge dim" role="status">events —</span>
   </div>
   <figure class="qr">
-    <img id="qr-img" alt="QR code that opens the phone page on this server" width="108" height="108">
+    <img id="qr-img" alt="QR code that opens the phone mic page on this server" width="108" height="108">
     <figcaption><a id="qr-url" class="muted" href="/phone"></a></figcaption>
   </figure>
 </header>
 
-<p class="notice hud">Call table is placeholder: real race calls not yet collected <strong>(UNVERIFIED)</strong></p>
-
 <main class="hud">
-  <section class="panel hero" aria-labelledby="h-stroke">
-    <h2 id="h-stroke">Stroke rate</h2>
-    <p class="spm"><output id="spm">–</output><span class="unit">spm</span></p>
-    <canvas id="spark" role="img" aria-label="Line chart of stroke rate over the last 60 seconds"></canvas>
-    <p id="stroke-meta" class="muted">waiting for the phone</p>
-  </section>
-
-  <section class="panel call" aria-labelledby="h-call">
-    <h2 id="h-call">Heard call</h2>
-    <div aria-live="polite">
-      <p id="call-text" class="call-text">No call yet</p>
-      <p class="meaning-line">
-        <span id="call-meaning" class="meaning">—</span>
-        <span id="call-src" class="badge dim" title="live API call or replayed fixture">—</span>
-      </p>
-      <p id="call-sub" class="muted">the judge's shout, translated to English</p>
-      <dl class="facts">
-        <div><dt>confidence</dt><dd id="call-conf">—</dd></div>
-        <div><dt>matched by</dt><dd><span id="call-matchedby" class="badge dim">—</span></dd></div>
-        <div><dt>ears</dt><dd><span id="call-ears" class="badge dim">—</span></dd></div>
-        <div><dt>hear latency</dt><dd id="call-lat">—</dd></div>
-        <div><dt>voice</dt><dd><span id="call-tts" class="badge dim">—</span></dd></div>
-      </dl>
-      <p id="call-extra" class="muted"></p>
-      <div class="row">
-        <button id="replay" type="button" disabled>Replay spoken call</button>
-        <button id="replay-coach" type="button" disabled>Replay coach (Malayalam)</button>
-      </div>
-      <p id="obey-verdict" class="verdict none" aria-live="polite">—</p>
-      <p id="obey-detail" class="muted"></p>
-    </div>
-  </section>
-
-  <section class="panel shout" aria-labelledby="h-shout">
-    <h2 id="h-shout">Shout a call</h2>
-    <fieldset class="chips">
-      <legend>speak the meaning to the rower in</legend>
-      <label><input type="radio" name="lang" value="hi-IN" checked><span>Hindi</span></label>
-      <label><input type="radio" name="lang" value="bn-IN"><span>Bengali</span></label>
-      <label><input type="radio" name="lang" value="od-IN"><span>Odia</span></label>
-      <label><input type="radio" name="lang" value="ta-IN"><span>Tamil</span></label>
-      <label><input type="radio" name="lang" value="en-IN"><span>English</span></label>
-    </fieldset>
-    <fieldset class="chips" id="provider-chips">
-      <legend>voice provider</legend>
-      <label><input type="radio" name="tts" value="sarvam" checked><span>Sarvam</span></label>
-      <label><input type="radio" name="tts" value="smallest"><span>smallest.ai</span></label>
-      <span id="provider-note" class="muted chip-note">checking providers…</span>
-    </fieldset>
-    <label class="toggle" id="coach-row" hidden>
-      <input type="checkbox" id="coach">
-      <span>coach playback — speak my typed call back in Malayalam</span>
-    </label>
-    <div class="field">
-      <label for="shout-text">typed shout (fallback)</label>
-      <input id="shout-text" type="text" maxlength="500" autocomplete="off"
-             placeholder="English drill phrase, e.g. row faster">
-    </div>
-    <div class="row">
-      <button id="send-text" type="button">Send text</button>
-      <button id="rec" type="button" aria-pressed="false" class="rec-btn">Record shout</button>
-    </div>
-    <div id="rec-ui" class="rec-ui" hidden>
-      <div class="meter" aria-hidden="true"><span id="level"></span></div>
-      <span id="rec-time">0.0 s</span>
-    </div>
-    <p id="shout-status" class="status" role="status" aria-live="polite"></p>
-  </section>
-
   <section class="panel inbox" aria-labelledby="h-inbox">
     <h2 id="h-inbox">Voice-note inbox</h2>
     <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
       <p>Drop a WhatsApp voice note here, or click to choose a file</p>
-      <p id="drop-hint" class="muted">.opus .ogg .m4a .aac .amr .mp3 .wav .webm — max 5 MB, clips up to 30 s (the Sarvam REST speech-to-text limit). The file's own bytes decide the format.</p>
+      <p id="drop-hint" class="muted">.opus .ogg .m4a .aac .amr .mp3 .wav .webm — max 5 MB, clips up to 30 s (the Sarvam speech-to-text limit). The file's own bytes decide the format.</p>
     </div>
     <input id="file-input" type="file" accept="audio/*,.opus,.ogg,.oga,.m4a,.aac,.amr,.mp3,.wav,.webm,.flac" hidden>
     <button id="cut-btn" class="mini" type="button" hidden>Use the first 30 s</button>
@@ -114,54 +39,83 @@
     <p class="muted note">Transcription is Sarvam cloud speech-to-text — the audio leaves the laptop; it is not local. Audio bytes are never stored; only the translated text is kept in the archive.</p>
   </section>
 
+  <section class="panel last" aria-labelledby="h-last">
+    <h2 id="h-last">Latest note</h2>
+    <div aria-live="polite" id="last-box">
+      <p id="last-src" class="badges"><span id="last-origin" class="badge dim"></span><span id="last-lang" class="badge dim"></span></p>
+      <p id="last-ml" class="ml"></p>
+      <p id="last-roman" class="roman muted"></p>
+      <p id="last-en" class="en"></p>
+      <div class="row">
+        <button id="speak-again" type="button" disabled>Speak again</button>
+        <button id="copy-en" type="button" disabled>Copy translation</button>
+      </div>
+      <p id="last-status" class="status" role="status"></p>
+    </div>
+    <fieldset class="chips">
+      <legend>speak translations in</legend>
+      <label><input type="radio" name="lang" value="en-IN" checked><span>English</span></label>
+      <label><input type="radio" name="lang" value="hi-IN"><span>Hindi</span></label>
+      <label><input type="radio" name="lang" value="bn-IN"><span>Bengali</span></label>
+      <label><input type="radio" name="lang" value="od-IN"><span>Odia</span></label>
+      <label><input type="radio" name="lang" value="ta-IN"><span>Tamil</span></label>
+    </fieldset>
+    <fieldset class="chips" id="provider-chips">
+      <legend>voice provider</legend>
+      <label><input type="radio" name="tts" value="sarvam" checked><span>Sarvam</span></label>
+      <label><input type="radio" name="tts" value="smallest"><span>smallest.ai</span></label>
+      <span id="provider-note" class="muted chip-note">checking providers…</span>
+    </fieldset>
+  </section>
+
+  <section class="panel shout" aria-labelledby="h-shout">
+    <h2 id="h-shout">Type Malayalam</h2>
+    <div class="field">
+      <label for="shout-text">typed text</label>
+      <input id="shout-text" type="text" maxlength="500" autocomplete="off" lang="ml"
+             placeholder="ഉദാ. നമസ്കാരം — Enter translates">
+    </div>
+    <div class="row">
+      <button id="send-text" type="button">Translate</button>
+      <button id="rec" type="button" aria-pressed="false" class="rec-btn">Hold to talk</button>
+    </div>
+    <div id="rec-ui" class="rec-ui" hidden>
+      <div class="meter" aria-hidden="true"><span id="level"></span></div>
+      <span id="rec-time">0.0 s</span>
+    </div>
+    <p id="shout-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
   <section class="panel archive" aria-labelledby="h-archive">
-    <h2 id="h-archive">Call archive</h2>
+    <h2 id="h-archive">Archive</h2>
     <p id="archive-summary" class="muted"></p>
     <div class="row archive-tools">
-      <a class="mini" href="/api/archive.json" download="rowing-call-archive.json">Export JSON</a>
-      <a class="mini" href="/api/archive.csv" download="rowing-call-archive.csv">Export CSV</a>
+      <a class="mini" href="/api/archive.json" download="malayalam-notches.json">Export JSON</a>
+      <a class="mini" href="/api/archive.csv" download="malayalam-notches.csv">Export CSV</a>
       <label class="lang-filter" for="archive-lang">language
         <select id="archive-lang"><option value="">all</option></select>
       </label>
     </div>
     <div class="field">
       <label for="archive-q">search the archive</label>
-      <input id="archive-q" type="text" autocomplete="off" placeholder="translation, meaning or language">
+      <input id="archive-q" type="text" autocomplete="off" placeholder="translation, Malayalam, roman or language">
     </div>
     <div class="table-wrap">
       <table>
-        <caption class="sr-only">every heard call, newest first</caption>
+        <caption class="sr-only">every note, newest first</caption>
         <thead>
           <tr><th scope="col">time</th><th scope="col">source</th><th scope="col">file</th><th scope="col">lang</th>
-              <th scope="col">heard as</th><th scope="col">meaning</th><th scope="col">verdict</th><th scope="col"></th></tr>
+              <th scope="col">malayalam</th><th scope="col">roman</th><th scope="col">english</th><th scope="col"></th></tr>
         </thead>
         <tbody id="archive-rows">
-          <tr><td colspan="8" class="muted">no archived calls yet</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel evidence" aria-labelledby="h-evi">
-    <h2 id="h-evi">Evidence</h2>
-    <p id="tally" class="tally">no trials yet</p>
-    <p id="tts-summary" class="muted tts-sum"></p>
-    <div class="table-wrap">
-      <table>
-        <caption class="sr-only">all trials this session, newest first</caption>
-        <thead>
-          <tr><th scope="col">time</th><th scope="col">heard as</th><th scope="col">meaning</th>
-              <th scope="col">source</th><th scope="col">voice</th><th scope="col">latency</th><th scope="col">outcome</th></tr>
-        </thead>
-        <tbody id="trials">
-          <tr><td colspan="7" class="muted">waiting for the first shout</td></tr>
+          <tr><td colspan="8" class="muted">no notes yet</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 </main>
 
-<footer class="hud muted">an induction and classroom drill — not race equipment</footer>
+<footer class="hud muted">Transcription and translation are Sarvam cloud services. Machine translation, not certified.</footer>
 
 </body>
 </html>

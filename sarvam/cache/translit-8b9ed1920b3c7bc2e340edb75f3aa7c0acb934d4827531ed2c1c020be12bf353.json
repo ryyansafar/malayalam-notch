@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translit",
+  "key": "8b9ed1920b3c7bc2e340edb75f3aa7c0acb934d4827531ed2c1c020be12bf353",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "33af73f391e6e45427a0c5b0ff971a0d00ea158a862ac5d89bf671b0648ac4c6",
+    "audioBytes": 3145,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translit"
+  },
+  "result": {
+    "text": "Ithu oru pareekshanamannu.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:16:28.499Z"
+}

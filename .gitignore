@@ -8,3 +8,6 @@ data/
 notch-app/build/
 *.png
 !public/**/*.png
+
+# Boring Notch (GPL-3.0) local reference copy -- never commit
+notch-bn/

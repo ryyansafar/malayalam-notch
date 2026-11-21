@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translit",
+  "key": "a54b8f47ac0cf41aa82f62bf8bb83bb5dfafd54d1dc421edbf94bae7ad48d22a",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "7c255602a7c6b0e4d2b6b96fd023a9d41e832a931126f505b5e8a29217204e24",
+    "audioBytes": 5927,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translit"
+  },
+  "result": {
+    "text": "Enikku naale raavile Alappuzhayilekku pokanam.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:07:31.818Z"
+}

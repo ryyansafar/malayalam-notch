@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "transcribe",
+  "key": "0ec519a04baf3f905cf42fca03b7354012b154a2ec3c7a727ddf8011b28562a9",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "7c255602a7c6b0e4d2b6b96fd023a9d41e832a931126f505b5e8a29217204e24",
+    "audioBytes": 5927,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "transcribe"
+  },
+  "result": {
+    "text": "എനിക്ക് നാളെ രാവിലെ ആലപ്പുഴയിലേക്ക് പോകണം.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:07:31.760Z"
+}

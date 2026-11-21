@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "transcribe",
+  "key": "485898fdbd1208f577a190907f4dd112fe093378a8130bc6e60ae92ee92db958",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "33af73f391e6e45427a0c5b0ff971a0d00ea158a862ac5d89bf671b0648ac4c6",
+    "audioBytes": 3145,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "transcribe"
+  },
+  "result": {
+    "text": "ഇത് ഒരു പരീക്ഷണമാണ്.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:16:28.498Z"
+}

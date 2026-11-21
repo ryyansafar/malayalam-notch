@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "transcribe",
+  "key": "180bd113ef9216e511002698fd57aad01fe13831d97566d0d6eec188fcbb7750",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "94b8e996d124dffdc8077438920db75739c20d6f31e1cae48c0e4c5b54d5a960",
+    "audioBytes": 5464,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "transcribe"
+  },
+  "result": {
+    "text": "വള്ളംകളി കാണാൻ ഞങ്ങൾ വൈകുന്നേരം വരും.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:14:05.352Z"
+}

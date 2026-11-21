@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>site.ryyansafar.rowingcall.notch</string>
+	<string>site.ryyansafar.malayalam.notch</string>
 	<key>CFBundleName</key>
-	<string>rowing-call notch</string>
+	<string>Malayalam in the notch</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>CFBundleShortVersionString</key>
@@ -17,7 +17,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>The notch island records the coach's shout so it can be translated into a rowing call.</string>
+	<string>The notch island records a spoken note so it can be transcribed and translated.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "69d58e41ffbe2fdb0588b455caa944793246f6f614dea01ec518ac945d529792",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "7c255602a7c6b0e4d2b6b96fd023a9d41e832a931126f505b5e8a29217204e24",
+    "audioBytes": 5927,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translate"
+  },
+  "result": {
+    "text": "I need to go to Alappuzha tomorrow morning.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:07:31.817Z"
+}

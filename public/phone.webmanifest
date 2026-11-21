@@ -1,6 +1,6 @@
 {
-  "name": "rowing-call",
-  "short_name": "rowing-call",
+  "name": "Malayalam in the notch",
+  "short_name": "notch mic",
   "start_url": "/phone",
   "scope": "/",
   "display": "standalone",
@@ -14,7 +14,20 @@
       "files": [
         {
           "name": "audio",
-          "accept": ["audio/*", ".opus", ".ogg", ".oga", ".m4a", ".mp4", ".aac", ".amr", ".mp3", ".wav", ".webm", ".flac"]
+          "accept": [
+            "audio/*",
+            ".opus",
+            ".ogg",
+            ".oga",
+            ".m4a",
+            ".mp4",
+            ".aac",
+            ".amr",
+            ".mp3",
+            ".wav",
+            ".webm",
+            ".flac"
+          ]
         }
       ]
     }

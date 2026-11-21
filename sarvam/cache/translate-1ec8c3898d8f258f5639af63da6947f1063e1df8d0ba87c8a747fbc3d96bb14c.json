@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "1ec8c3898d8f258f5639af63da6947f1063e1df8d0ba87c8a747fbc3d96bb14c",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "94b8e996d124dffdc8077438920db75739c20d6f31e1cae48c0e4c5b54d5a960",
+    "audioBytes": 5464,
+    "mime": "audio/ogg",
+    "sourceLang": "ml-IN",
+    "mode": "translate"
+  },
+  "result": {
+    "text": "We will come in the evening to watch the boat race.",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:14:05.366Z"
+}

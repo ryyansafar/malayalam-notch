@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "061fba5477f2c5a3d246997b2d613af7c803a128cf1a932a8c1fbf3828d8384f",
+  "input": {
+    "kind": "audio",
+    "audioSha256": "452f540ff1006b9293fe8d8cbc51b3076b590c3f30b7c0fc909ecc054ed67019",
+    "audioBytes": 47528,
+    "mime": "audio/mp4",
+    "sourceLang": "ml-IN",
+    "mode": "translate"
+  },
+  "result": {
+    "text": "",
+    "language": "ml-IN"
+  },
+  "recordedAt": "2026-11-21T19:35:56.168Z"
+}

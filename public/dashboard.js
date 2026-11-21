@@ -1,674 +1,302 @@
-// rowing-call dashboard: 3D hero, shout box, call/obedience cards, provider
-// switch, evidence table, voice-note inbox and call archive.
+// Malayalam in the notch — desk view: voice-note inbox, latest note, archive.
 // /api/* + /events SSE. ES module, no build step.
-
-import { createScene } from './scene.js';
-import { sniffAudio, measureDuration, cutOgg, formatFromName, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '/shared/audio-sniff.js';
+import { sniffAudio, measureDuration, formatFromName, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '/shared/audio-sniff.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {};
 for (const [k, id] of Object.entries({
   modeBadge: 'mode-badge', phoneBadge: 'phone-badge', sseBadge: 'sse-badge',
-  qrImg: 'qr-img', qrUrl: 'qr-url', spm: 'spm', spark: 'spark', strokeMeta: 'stroke-meta',
-  shoutText: 'shout-text', sendText: 'send-text', rec: 'rec', recUi: 'rec-ui',
-  level: 'level', recTime: 'rec-time', shoutStatus: 'shout-status', callText: 'call-text',
-  callMeaning: 'call-meaning', callConf: 'call-conf', callSrc: 'call-src', callLat: 'call-lat',
-  callExtra: 'call-extra', callMatchedBy: 'call-matchedby', callEars: 'call-ears',
-  callTts: 'call-tts', replay: 'replay', replayCoach: 'replay-coach',
-  obeyVerdict: 'obey-verdict', obeyDetail: 'obey-detail', tally: 'tally',
-  ttsSummary: 'tts-summary', trials: 'trials', providerNote: 'provider-note',
-  coachRow: 'coach-row', coach: 'coach',
+  qrImg: 'qr-img', qrUrl: 'qr-url',
   dropzone: 'dropzone', fileInput: 'file-input', inboxStatus: 'inbox-status',
   cutBtn: 'cut-btn', watchLine: 'watch-line',
+  lastOrigin: 'last-origin', lastLang: 'last-lang', lastMl: 'last-ml',
+  lastRoman: 'last-roman', lastEn: 'last-en', lastStatus: 'last-status',
+  speakAgain: 'speak-again', copyEn: 'copy-en',
+  shoutText: 'shout-text', sendText: 'send-text', rec: 'rec', recUi: 'rec-ui',
+  level: 'level', recTime: 'rec-time', shoutStatus: 'shout-status',
+  providerNote: 'provider-note',
   archiveQ: 'archive-q', archiveRows: 'archive-rows', archiveLang: 'archive-lang', archiveSummary: 'archive-summary',
 })) els[k] = $(id);
 
-const SPARK_WINDOW_MS = 60_000, STROKE_STALE_MS = 4_000, PHONE_QUIET_MS = 12_000;
-const REC_MAX_MS = 8_000, MAX_STROKES = 600, MAX_AUDIO = 24;
 const PROVIDER_LABEL = { sarvam: 'Sarvam', smallest: 'smallest.ai' };
 const SOURCE_LABEL = {
   voice_note: 'voice note', mic: 'mic', text: 'text', phone_mic: 'phone mic',
-  whatsapp_share: 'share sheet', whatsapp_desktop: 'whatsapp desktop', watched_folder: 'watched folder', ingest: 'ingest cli',
+  whatsapp_share: 'share sheet', whatsapp_desktop: 'whatsapp desktop',
+  watched_folder: 'watched folder', ingest: 'ingest', notch_drop: 'notch drop',
 };
-
-const ui = {
-  strokes: [], clockOffset: 0, phone: null,
-  audioByCallId: new Map(), currentAudio: null, coachAudio: null,
-  trials: [], busy: false,
-};
-
-const scene = createScene($('scene'));
-
-const serverNow = () => Date.now() + ui.clockOffset;
 const human = (s) => String(s || '').replace(/_/g, ' ');
 const esc = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
-const label = (p) => PROVIDER_LABEL[p] || p || '—';
 
-function setStatus(text, cls = '') {
-  els.shoutStatus.textContent = text;
-  els.shoutStatus.className = `status${cls ? ` ${cls}` : ''}`;
-}
+const ui = { phone: null, clockOffset: 0, lastNote: null, busy: false };
+
 const setBadge = (el, text, cls) => { el.textContent = text; el.className = `badge ${cls}`; };
+const serverNow = () => Date.now() + ui.clockOffset;
 
 // header
-const renderMode = (mode) => setBadge(els.modeBadge, mode === 'live' ? 'LIVE' : 'REPLAY',
-  mode === 'live' ? 'live' : 'replay');
-
+const renderMode = (mode) => setBadge(els.modeBadge, mode === 'live' ? 'LIVE' : 'REPLAY', mode === 'live' ? 'live' : 'replay');
 function renderPhone() {
   const p = ui.phone;
   if (!p || !p.connected) { setBadge(els.phoneBadge, 'phone not connected', 'dim'); return; }
-  const quiet = Number.isFinite(p.lastSeenT) && serverNow() - p.lastSeenT > PHONE_QUIET_MS;
-  const ago = Number.isFinite(p.lastSeenT)
-    ? ` · ${Math.max(0, Math.round((serverNow() - p.lastSeenT) / 1000))}s ago` : '';
-  setBadge(els.phoneBadge, `phone ${quiet ? 'quiet' : 'connected'}${p.simulated ? ' (sim)' : ''}${ago}`,
-    quiet ? 'bad' : 'live');
+  const ago = Number.isFinite(p.lastSeenT) ? ` · ${Math.max(0, Math.round((serverNow() - p.lastSeenT) / 1000))}s ago` : '';
+  setBadge(els.phoneBadge, `phone connected${ago}`, 'live');
 }
+setInterval(renderPhone, 2000);
 
-// providers (voice switch + coach playback)
+// providers
 function renderProviders(info) {
-  const prov = (info && info.providers) || {};
-  const allowed = new Set((info && info.ttsProviders) || ['sarvam']);
+  const prov = info?.providers || {};
+  const allowed = new Set(info?.ttsProviders || ['sarvam']);
   const notes = [];
-  const inputs = [...document.querySelectorAll('input[name="tts"]')];
-  for (const input of inputs) {
+  for (const input of document.querySelectorAll('input[name="tts"]')) {
     const p = prov[input.value] || {};
     input.disabled = !allowed.has(input.value);
     input.closest('label').title = input.disabled
-      ? `${label(input.value)} is not available on this server`
-      : `${label(input.value)} ${p.configured ? 'configured' : 'not configured'}${p.mode ? ` · ${p.mode}` : ''}`;
-    notes.push(`${label(input.value)} ${p.configured ? 'configured' : 'no key'}`);
-    if (input.disabled && input.checked) input.checked = false;
+      ? `${PROVIDER_LABEL[input.value]} is not available on this server`
+      : `${PROVIDER_LABEL[input.value]} ${p.configured ? 'configured' : 'not configured'}${p.mode ? ` · ${p.mode}` : ''}`;
+    notes.push(`${PROVIDER_LABEL[input.value]} ${p.configured ? 'configured' : 'no key'}`);
+    if (input.disabled && input.checked) document.querySelector('input[name="tts"]:not(:disabled)')?.click();
   }
-  const first = inputs.find((i) => !i.disabled);
-  if (first && !inputs.some((i) => i.checked && !i.disabled)) first.checked = true;
-  els.providerNote.textContent = info ? notes.join(' · ') : 'providers unknown — Sarvam assumed';
-  els.coachRow.hidden = !(info && info.coachPlayback);
-  const dirs = info && Array.isArray(info.watchDirs) ? info.watchDirs : [];
-  els.watchLine.hidden = dirs.length === 0;
-  els.watchLine.textContent = dirs.length
-    ? `watching: ${dirs.join(', ')} — new audio files there become voice notes`
+  els.providerNote.textContent = notes.join(' · ');
+  els.watchLine.hidden = !info?.watchDirs?.length;
+  els.watchLine.textContent = info?.watchDirs?.length
+    ? `watching ${info.watchDirs.map((d) => d.dir).join(', ')} — new audio files are translated automatically`
     : '';
 }
 
-const checked = (name, dflt) => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || dflt;
-
-// sparkline + live rate
-function mergeStrokes(events) {
-  const byT = new Map(ui.strokes.map((s) => [s.t, s]));
-  for (const e of events) if (Number.isFinite(e.t)) byT.set(e.t, e);
-  ui.strokes = [...byT.values()].sort((a, b) => a.t - b.t).slice(-MAX_STROKES);
+// latest note card
+function renderLast(note) {
+  if (!note) return;
+  ui.lastNote = note;
+  els.lastOrigin.textContent = SOURCE_LABEL[note.origin?.source || note.source] || human(note.origin?.source || note.source) || 'note';
+  els.lastLang.textContent = note.detectedLanguage || note.language || '—';
+  els.lastMl.textContent = note.sourceText || '';
+  els.lastRoman.textContent = note.romanText || '';
+  els.lastEn.textContent = note.translatedText || note.text || '';
+  els.speakAgain.disabled = !(note.translatedText || note.text);
+  els.copyEn.disabled = !(note.translatedText || note.text);
+  els.lastStatus.textContent = note.failedOps?.length ? `some output missing: ${note.failedOps.join(', ')} failed` : '';
 }
 
-const ctx = els.spark.getContext('2d');
-
-function drawSpark() {
-  const c = els.spark;
-  const w = c.clientWidth || 1;
-  const h = c.clientHeight || 110;
-  const dpr = window.devicePixelRatio || 1;
-  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
-    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
-  }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  const start = serverNow() - SPARK_WINDOW_MS;
-  const pts = ui.strokes.filter((s) => s.t >= start && s.t <= serverNow());
-  ctx.strokeStyle = 'rgba(120,124,100,0.35)';
-  ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-  ctx.fillStyle = '#a9ab9f';
-  ctx.font = '12px system-ui, sans-serif';
-  if (pts.length < 2) return ctx.fillText(pts.length ? 'collecting…' : 'no strokes in the last 60 s', 10, h / 2);
-  const max = Math.max(40, ...pts.map((p) => p.rateSpm || 0));
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    const x = ((p.t - start) / SPARK_WINDOW_MS) * w;
-    const y = h - 4 - ((p.rateSpm || 0) / max) * (h - 10);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = '#e0a030';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.font = '11px system-ui, sans-serif';
-  ctx.fillText(`${Math.round(max)} spm`, 6, 14);
-  ctx.fillText('now', w - 26, h - 6);
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error?.message || r.statusText);
+  return j;
 }
 
-function tick() {
-  const now = serverNow();
-  ui.strokes = ui.strokes.filter((s) => now - s.t <= SPARK_WINDOW_MS + 5_000);
-  const last = ui.strokes[ui.strokes.length - 1];
-  const stale = !last || now - last.t > STROKE_STALE_MS;
-  els.spm.textContent = String(stale ? 0 : Math.round(last.rateSpm || 0));
-  els.spm.classList.toggle('dim', stale);
-  els.strokeMeta.textContent = last
-    ? `stroke #${esc(last.count)} · ${Math.round(last.rateSpm || 0)} spm${last.simulated ? ' · simulated' : ''}`
-    : 'waiting for the phone';
-  renderPhone();
-  drawSpark();
-}
+function setStatus(t, cls = '') { els.shoutStatus.textContent = t; els.shoutStatus.className = `status${cls ? ` ${cls}` : ''}`; }
 
-// call + obedience cards
-function stashAudio(call) {
-  if (call.ttsAudioBase64 && call.mime && call.callId) {
-    ui.audioByCallId.set(call.callId, { b64: call.ttsAudioBase64, mime: call.mime });
-    while (ui.audioByCallId.size > MAX_AUDIO) ui.audioByCallId.delete(ui.audioByCallId.keys().next().value);
-  }
-  els.replay.disabled = !(ui.currentAudio = (call.callId && ui.audioByCallId.get(call.callId)) || null);
-}
-
-function onCall(c) {
-  if (!c || typeof c !== 'object') return;
-  stashAudio(c);
-  els.callText.textContent = c.translatedText || '(nothing translated)';
-  els.callMeaning.textContent = c.meaning ? human(c.meaning) : 'not recognised';
-  els.callConf.textContent = esc(c.confidence);
-  setBadge(els.callSrc, c.source === 'live' ? 'LIVE' : 'REPLAY', c.source === 'live' ? 'live' : 'replay');
-  setBadge(els.callMatchedBy, c.matchedBy ? human(c.matchedBy) : '—', c.matchedBy === 'model' ? 'replay' : 'dim');
-  setBadge(els.callEars, c.ears ? human(c.ears) : '—', c.ears === 'agree' ? 'live' : c.ears === 'disagree' ? 'bad' : 'dim');
-  els.callLat.textContent = Number.isFinite(c.latencyMs) ? `${c.latencyMs} ms` : '—';
-  els.callTts.textContent = c.tts
-    ? `${label(c.tts.provider)} · ${c.tts.latencyMs} ms${c.tts.source === 'live' ? '' : ' (replay)'}`
-    : (c.ttsProvider ? label(c.ttsProvider) : '—');
-  els.callExtra.textContent = [
-    c.spokenText ? `spoken: "${c.spokenText}"` : '',
-    c.model && c.model.name ? `model: ${c.model.name}` : '',
-  ].filter(Boolean).join(' · ');
-  scene.flash(c.meaning);
-  if (c.status === 'ok' || c.meaning) {
-    const win = Number.isFinite(c.windowMs) ? Math.round(c.windowMs / 1000) : 8;
-    setVerdict('none', 'watching strokes…', `judging obedience over a ${win} s window`);
-  }
-}
-
-function setVerdict(cls, verdict, detail) {
-  els.obeyVerdict.className = `verdict ${cls}`;
-  els.obeyVerdict.textContent = verdict;
-  els.obeyDetail.textContent = detail || '';
-}
-
-function onResult(r) {
-  if (!r || typeof r !== 'object') return;
-  addTrial(r);
-  loadArchive(); // the verdict was just written to the archive
-  scene.setResult(r.outcome);
-  const n = r.strokesUntilObeyed;
-  if (r.outcome === 'obeyed') setVerdict('ok', `Obeyed in ${n === null ? '?' : n} stroke${n === 1 ? '' : 's'}`, detailOf(r));
-  else if (r.outcome === 'not_obeyed') setVerdict('bad', 'Not obeyed', detailOf(r));
-  else setVerdict('warn', r.status === 'not_sure' ? 'Not sure — meaning not recognised' : 'Not sure', detailOf(r));
-}
-
-function detailOf(r) {
-  return [
-    r.reason,
-    Number.isFinite(r.deltaSpm) ? `Δ ${r.deltaSpm > 0 ? '+' : ''}${Math.round(r.deltaSpm)} spm` : '',
-    Number.isFinite(r.strokesObserved) ? `${r.strokesObserved} strokes observed` : '',
-    r.superseded ? 'window cut short by a newer call' : '',
-    r.source ? (r.source === 'live' ? 'live' : 'replay') : '',
-  ].filter(Boolean).join(' · ');
-}
-
-function playAudio(a) {
-  if (a) new Audio(`data:${a.mime};base64,${a.b64}`).play()
-    .catch(() => setStatus('Audio playback was blocked by the browser.', 'warn'));
-}
-
-// evidence table
-const OUTCOME_LABEL = { obeyed: 'obeyed', not_obeyed: 'not obeyed', not_sure: 'not sure' };
-const OUTCOME_CLS = { obeyed: 'ok', not_obeyed: 'bad', not_sure: 'warn' };
-const VERDICT_LABEL = OUTCOME_LABEL;
-
-function cell(tr, text, cls) {
-  const td = document.createElement('td');
-  td.textContent = text;
-  if (cls) td.className = cls;
-  tr.appendChild(td);
-  return td;
-}
-
-function renderTrials() {
-  const rows = ui.trials;
-  els.trials.textContent = '';
-  if (!rows.length) {
-    const tr = document.createElement('tr');
-    cell(tr, 'waiting for the first shout', 'muted').colSpan = 7;
-    els.trials.appendChild(tr);
-  } else {
-    const frag = document.createDocumentFragment();
-    for (const t of [...rows].reverse()) {
-      const tr = document.createElement('tr');
-      const live = t.source === 'live';
-      cell(tr, Number.isFinite(t.t) ? new Date(t.t).toLocaleTimeString('en-GB', { hour12: false }) : '—', 'time');
-      cell(tr, esc(t.translatedText));
-      cell(tr, t.meaning ? human(t.meaning) : '—');
-      cell(tr, live ? 'live' : 'replay', live ? 'src-live' : 'src-replay');
-      cell(tr, t.tts && t.tts.provider
-        ? `${label(t.tts.provider)}${Number.isFinite(t.tts.latencyMs) ? ` · ${t.tts.latencyMs} ms` : ''}`
-        : (t.ttsProvider ? label(t.ttsProvider) : '—'));
-      cell(tr, Number.isFinite(t.latencyMs) ? `${t.latencyMs} ms` : '—');
-      cell(tr, OUTCOME_LABEL[t.outcome] || esc(t.outcome), `outcome ${OUTCOME_CLS[t.outcome] || ''}`);
-      frag.appendChild(tr);
-    }
-    els.trials.appendChild(frag);
-  }
-  // Tally and the per-provider latency summary are always computed from the
-  // rows shown above — never from a claimed figure.
-  const c = { obeyed: 0, not_obeyed: 0, not_sure: 0 };
-  const sums = {}, sumsTts = {};
-  for (const t of rows) {
-    if (t.outcome in c) c[t.outcome] += 1;
-    const p = t.ttsProvider || (t.tts && t.tts.provider);
-    if (!p) continue;
-    if (Number.isFinite(t.latencyMs)) {
-      (sums[p] = sums[p] || { n: 0, ms: 0 }).n += 1; sums[p].ms += t.latencyMs;
-    }
-    if (t.tts && Number.isFinite(t.tts.latencyMs)) {
-      (sumsTts[p] = sumsTts[p] || { n: 0, ms: 0 }).n += 1; sumsTts[p].ms += t.tts.latencyMs;
-    }
-  }
-  const judged = c.obeyed + c.not_obeyed;
-  const pct = judged ? ` · ${Math.round((100 * c.obeyed) / judged)}% of judged` : '';
-  els.tally.textContent = rows.length
-    ? `${rows.length} trial${rows.length === 1 ? '' : 's'} — obeyed ${c.obeyed} · not obeyed ${c.not_obeyed} · not sure ${c.not_sure}${pct}`
-    : 'no trials yet';
-  const avg = (o) => Object.entries(o).map(([p, s]) => `${label(p)} ${Math.round(s.ms / s.n)} ms (n=${s.n})`).join(' · ');
-  els.ttsSummary.textContent = Object.keys(sums).length
-    ? `pipeline avg: ${avg(sums)}${Object.keys(sumsTts).length ? ` — voice avg: ${avg(sumsTts)}` : ''}` : '';
-}
-
-function addTrial(t) {
-  if (t && !ui.trials.some((x) => x.callId && x.callId === t.callId)) ui.trials.push(t);
-  renderTrials();
-}
-
-// state snapshot
-function applyState(s) {
-  if (!s || typeof s !== 'object') return;
-  if (Number.isFinite(s.serverT)) ui.clockOffset = s.serverT - Date.now();
-  if (typeof s.mode === 'string') renderMode(s.mode);
-  if (s.phone) { ui.phone = s.phone; renderPhone(); }
-  if (Array.isArray(s.recentStrokes)) {
-    mergeStrokes(s.recentStrokes);
-    const last = s.recentStrokes[s.recentStrokes.length - 1];
-    if (last && Number.isFinite(last.rateSpm)) scene.setStrokeRate(last.rateSpm);
-  }
-  if (Array.isArray(s.trials)) { ui.trials = s.trials.slice(); renderTrials(); }
-  if (s.lastCall) onCall(s.lastCall);
-  if (s.lastResult) onResult(s.lastResult);
-}
-
-// shout
-function setBusy(busy) {
-  ui.busy = busy;
-  els.sendText.disabled = els.shoutText.disabled = busy;
-  els.rec.disabled = busy && !rec;
-}
-
-async function postShout(payload) {
-  if (ui.busy) return;
-  setBusy(true);
-  setStatus('Shout sent — translating and matching…');
+async function shout(body) {
+  if (ui.busy) { setStatus('one translation at a time — try again in a moment'); return; }
+  ui.busy = true;
+  setStatus('translating…');
   try {
-    const res = await fetch('/api/shout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        targetLang: checked('lang', 'hi-IN'), ttsProvider: checked('tts', 'sarvam'),
-        coachPlayback: payload.text ? els.coach.checked : false, ...payload,
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data || data.ok === false) {
-      setStatus(`Shout failed: ${(data && data.error && data.error.message) || `HTTP ${res.status}`}`, 'bad');
-      return;
-    }
-    if (data.coachAudioBase64) {
-      ui.coachAudio = { b64: data.coachAudioBase64, mime: data.coachMime || 'audio/wav' };
-      els.replayCoach.disabled = false;
-      playAudio(ui.coachAudio);
-    }
-    if (data.status === 'not_sure') {
-      setStatus('Not sure, please shout again', 'warn');
-      onResult(data);
-      return;
-    }
-    onCall(data); // the SSE 'call' event carries the same record; rendering here is idempotent
-    setStatus(`Heard "${data.translatedText || ''}" → ${human(data.meaning)} — judging obedience…`, 'ok');
-  } catch {
-    setStatus('Shout failed: could not reach the server.', 'bad');
-  } finally {
-    setBusy(false);
-    loadArchive(); // the server archives every heard shout, even a failed judgement
-  }
+    const targetLang = document.querySelector('input[name="lang"]:checked')?.value || 'en-IN';
+    const ttsProvider = document.querySelector('input[name="tts"]:checked')?.value || 'sarvam';
+    const note = await post('/api/shout', { targetLang, ttsProvider, ...body });
+    renderLast(note);
+    playNote(note);
+    setStatus('done');
+    loadArchive();
+  } catch (e) {
+    setStatus(`couldn't translate — ${e.message}`);
+  } finally { ui.busy = false; }
 }
 
-function sendText() {
-  const text = els.shoutText.value.trim();
-  if (!text) return setStatus('Type a shout first, or use Record.', 'warn');
+let audio = null;
+function playNote(note) {
+  if (!note?.ttsAudioBase64) return;
+  audio?.pause();
+  audio = new Audio(`data:${note.ttsAudioMime || 'audio/wav'};base64,${note.ttsAudioBase64}`);
+  audio.play().catch(() => {});
+}
+
+els.sendText.addEventListener('click', () => {
+  const t = els.shoutText.value.trim();
+  if (!t) return;
+  shout({ text: t, source: 'text' });
   els.shoutText.value = '';
-  postShout({ text });
-}
+});
+els.shoutText.addEventListener('keydown', (e) => { if (e.key === 'Enter') els.sendText.click(); });
 
-// recording (MediaRecorder)
-let rec = null; // { mr, stream, audioCtx, analyser, raf, autoStop, t0 }
-
-const pickMime = () => ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
-  .find((m) => MediaRecorder.isTypeSupported(m)) || '';
-
-async function startRecording() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
-    return setStatus('Recording needs localhost or HTTPS — type a shout instead.', 'warn');
-  }
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch {
-    return setStatus('Microphone permission denied — type a shout instead.', 'warn');
-  }
-  const mime = pickMime();
-  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  const chunks = [];
-  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  mr.onstop = () => {
-    const blob = new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' });
-    finishRecording();
-    if (!blob.size) return setStatus('Nothing was recorded.', 'warn');
-    blob.arrayBuffer().then((buf) => postShout({ audioBase64: toBase64(buf), mime: blob.type }));
-  };
-  rec = { mr, stream, audioCtx: null, analyser: null, raf: 0, autoStop: 0, t0: performance.now() };
-  try { // level meter is optional
-    const AC = window.AudioContext || window.webkitAudioContext;
-    rec.audioCtx = new AC();
-    rec.analyser = rec.audioCtx.createAnalyser();
-    rec.analyser.fftSize = 256;
-    rec.audioCtx.createMediaStreamSource(stream).connect(rec.analyser);
-  } catch { /* no meter */ }
-  mr.start(250);
-  els.rec.setAttribute('aria-pressed', 'true');
-  els.rec.textContent = 'Stop & send';
-  els.recUi.hidden = false;
-  rec.autoStop = setTimeout(stopRecording, REC_MAX_MS);
-  rec.raf = requestAnimationFrame(levelLoop);
-}
-
-function stopRecording() { if (rec && rec.mr.state !== 'inactive') rec.mr.stop(); } // onstop -> finishRecording
-
-function finishRecording() {
-  if (!rec) return;
-  clearTimeout(rec.autoStop);
-  cancelAnimationFrame(rec.raf);
-  for (const track of rec.stream.getTracks()) track.stop();
-  if (rec.audioCtx) rec.audioCtx.close().catch(() => {});
-  rec = null;
-  els.rec.setAttribute('aria-pressed', 'false');
-  els.rec.textContent = 'Record shout';
-  els.recUi.hidden = true;
-  els.level.style.width = '0';
-}
-
-function levelLoop() {
-  if (!rec) return;
-  if (rec.analyser) {
-    const buf = new Uint8Array(rec.analyser.fftSize);
-    rec.analyser.getByteTimeDomainData(buf);
-    const rms = Math.sqrt(buf.reduce((s, v) => s + (v - 128) * (v - 128), 0) / buf.length) / 128;
-    els.level.style.width = `${Math.min(100, Math.round(rms * 250))}%`;
-  }
-  els.recTime.textContent = `${((performance.now() - rec.t0) / 1000).toFixed(1)} s / 8 s max`;
-  rec.raf = requestAnimationFrame(levelLoop);
-}
-
-function toBase64(buf) {
-  const bytes = new Uint8Array(buf);
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(out);
-}
-
-// ---------- voice-note inbox ----------
-
-let pendingCut = null; // { name, buf, mime } while a "use the first 30 s" offer is up
-
-function setInboxStatus(text, cls = '') {
-  els.inboxStatus.textContent = text;
-  els.inboxStatus.className = `status${cls ? ` ${cls}` : ''}`;
-}
-
-function offerCut(name, buf, mime) {
-  pendingCut = { name, buf, mime };
-  els.cutBtn.hidden = false;
-}
-
-function clearCut() {
-  pendingCut = null;
-  els.cutBtn.hidden = true;
-}
-
-async function uploadNote(name, buf, mime) {
-  setInboxStatus(`Sending "${name}" — Sarvam cloud speech-to-text…`);
-  await postShout({ audioBase64: toBase64(buf), mime, filename: name, source: 'voice_note' });
-  setInboxStatus(`"${name}" sent as a voice note.`);
-}
-
-async function sendNote(file) {
-  clearCut();
-  if (file.size > NOTE_MAX_BYTES) {
-    return setInboxStatus(`"${file.name}" is ${(file.size / 1e6).toFixed(1)} MB — the limit is ${NOTE_MAX_BYTES / 1e6} MB.`, 'bad');
-  }
-  let buf;
+els.speakAgain.addEventListener('click', async () => {
+  const text = ui.lastNote?.translatedText || ui.lastNote?.text;
+  if (!text) return;
+  els.lastStatus.textContent = 'speaking…';
   try {
-    buf = await file.arrayBuffer();
-  } catch {
-    return setInboxStatus(`Could not read "${file.name}".`, 'bad');
-  }
-  const bytes = new Uint8Array(buf);
-  const sniffed = sniffAudio(bytes);
-  if (!sniffed) {
-    return setInboxStatus(`"${file.name}" is not a recognised audio file (Ogg/Opus, MP3, WAV, M4A, AAC, AMR or WebM).`, 'bad');
-  }
-  // The bytes decide the format; the extension is only noted when it disagrees.
-  const byExt = formatFromName(file.name);
-  const mismatch = byExt && byExt !== sniffed.format
-    ? ` (named .${(/\.([A-Za-z0-9]+)$/.exec(file.name) || [])[1] || '?'} but actually ${sniffed.label})`
-    : '';
-  const dur = measureDuration(bytes, sniffed.format);
-  if (dur && dur.seconds > SPEECH_MAX_SECONDS) {
-    const how = dur.exact ? 'is' : 'is about';
-    const cut = sniffed.format === 'ogg' ? cutOgg(bytes, SPEECH_MAX_SECONDS) : null;
-    if (cut) {
-      offerCut(file.name, cut, sniffed.mime);
-      return setInboxStatus(
-        `"${file.name}" ${how} ${Math.round(dur.seconds)} s — the limit is ${SPEECH_MAX_SECONDS} s. It can be cut at a page boundary (nothing is re-encoded).`,
-        'warn',
-      );
-    }
-    return setInboxStatus(`"${file.name}" ${how} ${Math.round(dur.seconds)} s — Sarvam accepts clips up to ${SPEECH_MAX_SECONDS} s; send a shorter note.`, 'bad');
-  }
-  setInboxStatus(`"${file.name}" is ${sniffed.label}${mismatch}.`);
-  return uploadNote(file.name, buf, sniffed.mime);
+    const targetLang = document.querySelector('input[name="lang"]:checked')?.value || 'en-IN';
+    const ttsProvider = document.querySelector('input[name="tts"]:checked')?.value || 'sarvam';
+    const r = await post('/api/speak', { text, targetLang, ttsProvider });
+    playNote(r);
+    els.lastStatus.textContent = '';
+  } catch (e) { els.lastStatus.textContent = `speak failed — ${e.message}`; }
+});
+els.copyEn.addEventListener('click', () => {
+  navigator.clipboard?.writeText(ui.lastNote?.translatedText || ui.lastNote?.text || '');
+});
+
+// hold to talk
+let rec = null, recChunks = [], recTimer = null, levelTimer = null, levelCtx = null, recStartT = 0;
+const REC_MAX_MS = 25000;
+async function startRec() {
+  if (rec?.state === 'recording') return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/mp4';
+    rec = new MediaRecorder(stream, { mimeType });
+    recChunks = [];
+    rec.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      levelCtx?.close?.(); levelCtx = null;
+      els.recUi.hidden = true;
+      const blob = new Blob(recChunks, { type: rec.mimeType });
+      const buf = await blob.arrayBuffer();
+      let bin = ''; const u8 = new Uint8Array(buf);
+      for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+      shout({ audioBase64: btoa(bin), mime: blob.type, source: 'mic' });
+    };
+    try {
+      levelCtx = new AudioContext();
+      const src = levelCtx.createMediaStreamSource(stream);
+      const analyser = levelCtx.createAnalyser(); analyser.fftSize = 256;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      levelTimer = setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        const peak = Math.max(...data.map((v) => Math.abs(v - 128))) / 128;
+        els.level.style.width = `${Math.min(100, peak * 140)}%`;
+      }, 80);
+    } catch { /* meter is cosmetic */ }
+    rec.start();
+    recStartT = performance.now();
+    els.rec.setAttribute('aria-pressed', 'true');
+    els.rec.textContent = 'Listening…';
+    els.recUi.hidden = false;
+    recTimer = setInterval(() => { els.recTime.textContent = `${((performance.now() - recStartT) / 1000).toFixed(1)} s`; }, 100);
+    setTimeout(stopRec, REC_MAX_MS);
+  } catch { setStatus('no microphone — check browser permissions'); }
 }
-
-// ---------- call archive ----------
-
-let archiveTimer = 0;
-let archiveEntries = []; // the last fetched list (the q= search runs on the server)
-
-async function loadArchive() {
-  const q = els.archiveQ.value.trim();
-  const res = await fetch(`/api/archive${q ? `?q=${encodeURIComponent(q)}` : ''}`).catch(() => null);
-  const data = res && res.ok ? await res.json().catch(() => null) : null;
-  if (data && data.ok && Array.isArray(data.entries)) {
-    archiveEntries = data.entries;
-    renderArchive();
-  }
+function stopRec() {
+  clearInterval(recTimer);
+  if (rec?.state === 'recording') rec.stop();
+  els.rec.setAttribute('aria-pressed', 'false');
+  els.rec.textContent = 'Hold to talk';
 }
+els.rec.addEventListener('pointerdown', startRec);
+addEventListener('pointerup', stopRec);
 
-// The strip is computed from the rows themselves — never from a claimed figure.
-function renderArchiveSummary() {
-  const entries = archiveEntries;
-  if (!entries.length) {
-    els.archiveSummary.textContent = '';
-    return;
-  }
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const today = entries.filter((e) => Number.isFinite(e.time) && e.time >= dayStart.getTime()).length;
-  const langs = [...new Set(entries.map((e) => e.language).filter((l) => typeof l === 'string' && l))];
-  const c = { obeyed: 0, not_obeyed: 0, not_sure: 0 };
-  for (const e of entries) if (e.verdict in c) c[e.verdict] += 1;
-  els.archiveSummary.textContent =
-    `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} · ${today} today · ` +
-    `languages: ${langs.join(', ') || '—'} · obeyed ${c.obeyed} · not obeyed ${c.not_obeyed} · not sure ${c.not_sure}`;
+// voice-note inbox
+const fmtBytes = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
+async function sendFile(file) {
+  els.inboxStatus.textContent = `reading ${file.name}…`;
+  const buf = await file.arrayBuffer();
+  if (buf.byteLength > NOTE_MAX_BYTES) { els.inboxStatus.textContent = `${file.name} is ${fmtBytes(buf.byteLength)} — over the 5 MB limit.`; return; }
+  const sniffed = sniffAudio(buf);
+  if (!sniffed) { els.inboxStatus.textContent = `${file.name} is not a recognised audio file.`; return; }
+  const dur = measureDuration(buf, sniffed.format);
+  const secs = dur?.seconds ?? null;
+  if (secs !== null && secs > SPEECH_MAX_SECONDS) { els.inboxStatus.textContent = `${file.name} is ${Math.round(secs)} s — longer than the 30 s speech-to-text limit.`; return; }
+  let bin = ''; const u8 = new Uint8Array(buf);
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  els.inboxStatus.textContent = `translating ${file.name}${secs ? ` · ${Math.round(secs)} s` : ''}…`;
+  await shout({ audioBase64: btoa(bin), mime: sniffed.mime, filename: file.name, source: 'voice_note' });
 }
+els.dropzone.addEventListener('click', () => els.fileInput.click());
+els.dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.fileInput.click(); } });
+els.fileInput.addEventListener('change', () => { const f = els.fileInput.files[0]; if (f) sendFile(f); els.fileInput.value = ''; });
+for (const ev of ['dragenter', 'dragover']) els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); });
+for (const ev of ['dragleave', 'drop']) els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); });
+els.dropzone.addEventListener('drop', (e) => { const f = [...(e.dataTransfer?.files || [])][0]; if (f) sendFile(f); });
 
-// The filter lists only the language codes Sarvam actually reported.
-function renderLangFilter() {
-  const current = els.archiveLang.value;
-  const langs = [...new Set(archiveEntries.map((e) => e.language).filter((l) => typeof l === 'string' && l))].sort();
-  els.archiveLang.textContent = '';
-  const all = document.createElement('option');
-  all.value = '';
-  all.textContent = 'all';
-  els.archiveLang.appendChild(all);
-  for (const l of langs) {
-    const opt = document.createElement('option');
-    opt.value = l;
-    opt.textContent = l;
-    els.archiveLang.appendChild(opt);
-  }
-  els.archiveLang.value = langs.includes(current) ? current : '';
-}
-
-function renderArchive() {
-  renderArchiveSummary();
-  renderLangFilter();
-  const lang = els.archiveLang.value;
-  const entries = lang ? archiveEntries.filter((e) => e.language === lang) : archiveEntries;
+// archive
+function renderArchive(entries) {
   els.archiveRows.textContent = '';
   if (!entries.length) {
     const tr = document.createElement('tr');
-    cell(tr, els.archiveQ.value.trim() || lang ? 'nothing in the archive matches' : 'no archived calls yet', 'muted').colSpan = 8;
-    els.archiveRows.appendChild(tr);
+    tr.innerHTML = '<td colspan="8" class="muted">no notes yet</td>';
+    els.archiveRows.append(tr);
     return;
   }
-  const frag = document.createDocumentFragment();
   for (const e of entries) {
     const tr = document.createElement('tr');
-    cell(tr, Number.isFinite(e.time) ? new Date(e.time).toLocaleTimeString('en-GB', { hour12: false }) : '—', 'time');
-    cell(tr, SOURCE_LABEL[e.source] || esc(e.source));
-    cell(tr, esc(e.filename));
-    const langTd = cell(tr, '');
-    const badge = document.createElement('span');
-    badge.className = 'badge dim';
-    badge.textContent = esc(e.language);
-    badge.title = 'language code reported by the speech API — a language only, not a dialect';
-    langTd.appendChild(badge);
-    cell(tr, esc(e.text));
-    cell(tr, e.meaning ? human(e.meaning) : '—');
-    const verdict = cell(tr, e.verdict ? VERDICT_LABEL[e.verdict] || human(e.verdict) : 'pending',
-      `outcome ${OUTCOME_CLS[e.verdict] || ''}`);
-    if (e.reason) verdict.title = e.reason;
-    const action = cell(tr, '');
-    if (e.text) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'mini';
-      btn.textContent = 'Replay as call';
-      btn.title = 'Send the translated text through the shout path again (no audio)';
-      btn.addEventListener('click', () => postShout({ text: e.text }));
-      action.appendChild(btn);
-      const copy = document.createElement('button');
-      copy.type = 'button';
-      copy.className = 'mini';
-      copy.textContent = 'Copy';
-      copy.title = 'Copy the translated text';
-      copy.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(e.text);
-          copy.textContent = 'Copied';
-        } catch {
-          copy.textContent = 'Failed';
-        }
-        setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
-      });
-      action.appendChild(copy);
-    }
-    frag.appendChild(tr);
+    const cells = [
+      new Date(e.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      SOURCE_LABEL[e.source] || human(e.source), e.filename || '—', e.language || '—',
+      e.transcript || '—', e.roman || '—', e.text || '—',
+    ];
+    for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr.append(td); }
+    const td = document.createElement('td');
+    td.className = 'row-actions';
+    const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'mini'; copy.textContent = 'copy';
+    copy.addEventListener('click', () => navigator.clipboard?.writeText(e.text || ''));
+    const speak = document.createElement('button'); speak.type = 'button'; speak.className = 'mini'; speak.textContent = 'speak';
+    speak.addEventListener('click', async () => {
+      try {
+        const r = await post('/api/speak', { text: e.text, targetLang: document.querySelector('input[name="lang"]:checked')?.value || 'en-IN' });
+        playNote(r);
+      } catch { /* status lives in the card */ }
+    });
+    td.append(copy, speak);
+    tr.append(td);
+    els.archiveRows.append(tr);
   }
-  els.archiveRows.appendChild(frag);
+  els.archiveSummary.textContent = `${entries.length} note${entries.length === 1 ? '' : 's'}`;
 }
+
+async function loadArchive() {
+  const q = els.archiveQ.value.trim();
+  const lang = els.archiveLang.value;
+  const r = await fetch(`/api/archive${q ? `?q=${encodeURIComponent(q)}` : ''}`).catch(() => null);
+  if (!r?.ok) return;
+  const { entries } = await r.json();
+  const filtered = lang ? entries.filter((e) => e.language === lang) : entries;
+  renderArchive(filtered);
+  if (!els.archiveLang.dataset.filled) {
+    els.archiveLang.dataset.filled = '1';
+    for (const l of [...new Set(entries.map((e) => e.language).filter(Boolean))]) {
+      const o = document.createElement('option'); o.value = l; o.textContent = l;
+      els.archiveLang.append(o);
+    }
+  }
+}
+let qTimer = null;
+els.archiveQ.addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(loadArchive, 200); });
+els.archiveLang.addEventListener('change', loadArchive);
 
 // SSE
 let es = null;
-
 function connect() {
-  if (es) es.close();
   es = new EventSource('/events');
-  es.onopen = () => setBadge(els.sseBadge, 'events live', 'live');
-  es.onerror = () => {
-    setBadge(els.sseBadge, 'events reconnecting', 'bad');
+  es.addEventListener('open', () => setBadge(els.sseBadge, 'events live', 'live'));
+  es.addEventListener('state', (e) => {
+    const s = JSON.parse(e.data);
+    ui.clockOffset = (s.serverT || Date.now()) - Date.now();
+    ui.phone = s.phone;
+    renderMode(s.mode);
+    renderPhone();
+    if (s.lastNote) renderLast(s.lastNote);
+  });
+  es.addEventListener('phone', (e) => { ui.phone = JSON.parse(e.data); renderPhone(); });
+  es.addEventListener('note', (e) => { renderLast(JSON.parse(e.data)); loadArchive(); });
+  es.addEventListener('error', () => {
+    setBadge(els.sseBadge, 'events reconnecting', 'dim');
     if (es.readyState === EventSource.CLOSED) setTimeout(connect, 2000);
-  };
-  const dispatch = { state: applyState, stroke: onStroke, call: onCall, result: onResult,
-    phone: (p) => { ui.phone = p; renderPhone(); } };
-  for (const [name, fn] of Object.entries(dispatch)) {
-    es.addEventListener(name, (e) => { try { fn(JSON.parse(e.data)); } catch { /* malformed event: ignore */ } });
-  }
+  });
 }
-
-function onStroke(e) {
-  if (!e || !Number.isFinite(e.t)) return;
-  mergeStrokes([e]);
-  if (Number.isFinite(e.rateSpm)) scene.setStrokeRate(e.rateSpm);
-}
-
-// init
-const phoneUrl = `${location.origin}/phone`;
-els.qrImg.src = `/qr.svg?url=${encodeURIComponent(phoneUrl)}`;
-els.qrUrl.textContent = phoneUrl;
-els.qrUrl.href = '/phone';
-
-els.sendText.addEventListener('click', sendText);
-els.shoutText.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
-els.rec.addEventListener('click', () => (rec ? stopRecording() : startRecording()));
-els.replay.addEventListener('click', () => playAudio(ui.currentAudio));
-els.replayCoach.addEventListener('click', () => playAudio(ui.coachAudio));
-
-// voice-note inbox: click or Enter/Space opens the picker; files may also be dropped.
-els.dropzone.addEventListener('click', () => els.fileInput.click());
-els.dropzone.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.fileInput.click(); }
-});
-els.fileInput.addEventListener('change', () => {
-  const file = els.fileInput.files && els.fileInput.files[0];
-  els.fileInput.value = ''; // picking the same file twice must still send it
-  if (file) sendNote(file);
-});
-for (const ev of ['dragenter', 'dragover']) {
-  els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.add('over'); });
-}
-for (const ev of ['dragleave', 'drop']) {
-  els.dropzone.addEventListener(ev, (e) => { e.preventDefault(); els.dropzone.classList.remove('over'); });
-}
-els.dropzone.addEventListener('drop', (e) => {
-  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (file) sendNote(file);
-});
-// A file dropped anywhere else must not navigate the dashboard away.
-for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.preventDefault());
-
-els.archiveQ.addEventListener('input', () => {
-  clearTimeout(archiveTimer);
-  archiveTimer = setTimeout(loadArchive, 250);
-});
-els.archiveLang.addEventListener('change', renderArchive);
-els.cutBtn.addEventListener('click', () => {
-  if (!pendingCut) return;
-  const { name, buf, mime } = pendingCut;
-  clearCut();
-  uploadNote(name, buf, mime); // the Ogg page-boundary cut of the first 30 s
-});
-
-fetch('/api/state').then((r) => (r.ok ? r.json() : null)).then(applyState).catch(() => {});
-fetch('/api/providers').then((r) => (r.ok ? r.json() : null)).then(renderProviders).catch(() => renderProviders(null));
-loadArchive();
 connect();
-setInterval(tick, 500);
-tick();
+
+// boot
+fetch('/api/state').then((r) => (r.ok ? r.json() : null)).then((s) => {
+  if (!s) return;
+  ui.clockOffset = (s.serverT || Date.now()) - Date.now();
+  ui.phone = s.phone; renderMode(s.mode); renderPhone();
+  if (s.lastNote) renderLast(s.lastNote);
+}).catch(() => {});
+fetch('/api/providers').then((r) => (r.ok ? r.json() : null)).then(renderProviders).catch(() => renderProviders(null));
+fetch('/qr.svg').then((r) => (r.ok ? r.text() : null)).then((svg) => {
+  if (svg) els.qrImg.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  els.qrUrl.href = '/phone';
+  els.qrUrl.textContent = `${location.origin.replace(/^https?/, location.protocol === 'https:' ? 'https' : 'http')}/phone`;
+}).catch(() => { document.querySelector('.qr').hidden = true; });
+loadArchive();
