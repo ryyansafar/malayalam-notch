@@ -21,6 +21,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var panel: NotchPanel!
     private var screen: NSScreen?
     private var timer: Timer?
+    private var clickMonitor: Any?
+    private var dragBaseline = 0
     private var leaveSince: Date?
     private let model = NotchModel.shared
     private var dragPasteboardCount = -1
@@ -34,6 +36,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         AssistantModel.shared.start()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
         model.onOpenChanged = { [weak self] open in if !open { self?.panel.ignoresMouseEvents = true } }
+        // A click anywhere outside the island (the menu bar, the area behind the notch, any other app)
+        // belongs to whatever is there; it also folds the island away. Clicks inside never reach this monitor.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.model.isOpen, AssistantModel.shared.pending == nil else { return }
+                self.model.pinnedUntil = .distantPast
+                self.model.setOpen(false)
+            }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -113,7 +124,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         if live != model.extended { withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { model.extended = live } }
 
         let mouseDown = NSEvent.pressedMouseButtons & 1 == 1
-        model.isDragging = mouseDown && dragCarriesAudio()
+        // A drag only counts when the drag pasteboard changed since the button went down; a plain click
+        // (menu bar, desktop) must never look like a drag, even if an old audio drag is still on the pasteboard.
+        if !mouseDown { dragBaseline = NSPasteboard(name: .drag).changeCount }
+        model.isDragging = mouseDown && NSPasteboard(name: .drag).changeCount != dragBaseline && dragCarriesAudio()
 
         // The action area is the notch pill itself (a few points of slack, nothing beside it).
         // Closer than that (a short way around the pill) the notch only "peeks".
