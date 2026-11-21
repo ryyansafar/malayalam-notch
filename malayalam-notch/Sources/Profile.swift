@@ -78,7 +78,7 @@ struct MeView: View {
 
     private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.system(size: 8.5, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
+            Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
             content()
         }
         .padding(.horizontal, 11).padding(.vertical, 9)

@@ -122,7 +122,7 @@ struct ToolsView: View {
 
     private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.system(size: 8.5, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
+            Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
             content()
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
@@ -137,12 +137,12 @@ struct ToolsView: View {
             if t.copyBusy {
                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Translating…").font(.system(size: 11)).foregroundStyle(.secondary) }
             } else if let c = t.copied {
-                Text(c.ml).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                Text(c.ml).font(Design.Font.ml).lineSpacing(5).lineLimit(3)
                 if !c.roman.isEmpty { Text(c.roman).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2) }
-                Text(c.en).font(.system(size: 13, weight: .semibold)).foregroundStyle(MalayalamTheme.accent).lineLimit(3)
+                Text(c.en).font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.primary)).lineLimit(3)
             } else {
-                Text(t.copyWatch ? "Copy some Malayalam text anywhere. The notch opens with it in English." : "Off. When on, copied Malayalam text is sent to Sarvam to translate. Passwords are never read.")
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(4)
+                Text(t.copyWatch ? "Copy Malayalam text anywhere." : "Off. When on, copied Malayalam text goes to Sarvam. Passwords are never read.")
+                    .font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(3)
             }
             Spacer(minLength: 0)
         }
@@ -151,9 +151,9 @@ struct ToolsView: View {
     private var wordArea: some View {
         let w = t.word
         return VStack(alignment: .leading, spacing: 4) {
-            Text(w.ml).font(.system(size: 30, weight: .semibold))
+            Text(w.ml).font(Design.Font.hero).lineSpacing(5)
             Text(w.roman).font(.system(size: 13)).foregroundStyle(.secondary)
-            Text(w.en).font(.system(size: 14, weight: .semibold)).foregroundStyle(MalayalamTheme.accent)
+            Text(w.en).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white.opacity(Design.Text.primary))
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 smallPill("speaker.wave.2.fill", "Hear it") { Task { await AssistantModel.shared.speak(w.ml, lang: "ml-IN") } }
@@ -169,7 +169,7 @@ struct ToolsView: View {
             ZStack {
                 Circle().stroke(Color.white.opacity(0.1), lineWidth: 6)
                 Circle().trim(from: 0, to: p)
-                    .stroke(t.focus == .rest ? Color.orange : MalayalamTheme.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .stroke(t.focus == .rest ? Color.white.opacity(0.6) : MalayalamTheme.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .rotationEffect(.degrees(-90)).animation(.linear(duration: 1), value: p)
                 VStack(spacing: 0) {
                     Text(on ? t.focusText : "25:00").font(.system(size: 17, weight: .semibold).monospacedDigit())

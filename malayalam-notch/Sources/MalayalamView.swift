@@ -240,7 +240,7 @@ struct MalayalamView: View {
                                         @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                Text(title).font(.system(size: 8.5, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
+                if !(["VOICE", "TRANSLATION"].contains(title)) { Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary)) }
                 Spacer(minLength: 0)
                 trailing()
             }
@@ -256,10 +256,9 @@ struct MalayalamView: View {
         VStack(spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 1.4, dash: [6, 5]))
-                    .foregroundStyle(targeted ? MalayalamTheme.accent : Color.white.opacity(0.22))
-                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(targeted ? MalayalamTheme.accent.opacity(0.14) : Color.white.opacity(0.03)))
+                    .fill(targeted ? MalayalamTheme.accent.opacity(0.18) : Color.white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(MalayalamTheme.accent.opacity(targeted ? 0.8 : 0), lineWidth: 1.2))
                 VStack(spacing: 4) {
                     Image(systemName: targeted ? "arrow.down.circle.fill" : "waveform")
                         .font(.system(size: 19, weight: .semibold))

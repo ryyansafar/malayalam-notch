@@ -8,7 +8,7 @@ import SwiftUI
 
 private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
     VStack(alignment: .leading, spacing: 7) {
-        Text(title).font(.system(size: 8.5, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
+        Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
         content()
     }
     .padding(.horizontal, 11).padding(.vertical, 9)
@@ -97,14 +97,14 @@ struct ActivityView: View {
 
     private var logArea: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if a.audit.isEmpty { Spacer(minLength: 0); Text("Nothing yet. Every action I take is listed here.").font(.system(size: 11.5)).foregroundStyle(.secondary); Spacer(minLength: 0) }
+            if a.audit.isEmpty { Text("Nothing yet. Every action is listed here.").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary)) }
             ForEach(a.audit.prefix(7)) { e in
                 HStack(spacing: 7) {
                     Text(e.ts, style: .time).font(.system(size: 9.5).monospacedDigit()).foregroundStyle(.tertiary).frame(width: 50, alignment: .leading)
                     Text(e.tool).font(.system(size: 10.5, weight: .semibold)).frame(width: 96, alignment: .leading).lineLimit(1)
                     Text(e.tier.prefix(2)).font(.system(size: 8.5, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Capsule().fill(e.tier.hasPrefix("T2") ? Color.orange.opacity(0.25) : Color.white.opacity(0.1)))
+                        .background(Capsule().fill(e.tier.hasPrefix("T2") ? MalayalamTheme.accent.opacity(0.3) : Color.white.opacity(0.1)))
                     Text(e.result).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -120,14 +120,10 @@ struct ActivityView: View {
                     Image(systemName: a.paused ? "play.fill" : "pause.fill")
                     Text(a.paused ? "Assistant paused — resume" : "Pause the assistant").font(.system(size: 11.5, weight: .semibold))
                 }
-                .foregroundStyle(a.paused ? Color.black : .white).frame(maxWidth: .infinity, minHeight: 32)
-                .background(Capsule().fill(a.paused ? Color.orange : Color.red.opacity(0.45)))
+                .foregroundStyle(a.paused ? Color.black : .white.opacity(Design.Text.primary)).frame(maxWidth: .infinity, minHeight: 36)
+                .background(Capsule().fill(a.paused ? MalayalamTheme.accent : Color.white.opacity(0.1)))
             }.buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("T0 read — runs and is logged").font(.system(size: 10)).foregroundStyle(.secondary)
-                Text("T1 change — runs and is logged").font(.system(size: 10)).foregroundStyle(.secondary)
-                Text("T2 confirm — always asks first").font(.system(size: 10, weight: .semibold)).foregroundStyle(.orange)
-            }
+            Text("Asks before anything that reaches a person or can lose work.").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.secondary))
             Spacer(minLength: 0)
             Text("No shell, no deleting files, nothing leaves this Mac unless you ask.").font(.system(size: 9.5)).foregroundStyle(.tertiary)
         }
@@ -135,10 +131,7 @@ struct ActivityView: View {
 
     private var phoneArea: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                Circle().fill(Color.green).frame(width: 7, height: 7)
-                Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 11, weight: .semibold))
-            }
+            Text(callReady == true ? "Phone line ready" : "Spoken on this Mac").font(.system(size: 12, weight: .semibold))
             Text("Reminders and your day are read aloud in Sarvam's voice. No phone number needed.")
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
             if callReady == true {

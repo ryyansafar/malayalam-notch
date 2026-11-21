@@ -101,8 +101,9 @@ struct NotchRootView: View {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).symbolEffect(.bounce, value: on)
                 if on { Text(label).font(.system(size: 11, weight: .semibold)) }
             }
-            .foregroundStyle(on ? Color.white : Color.white.opacity(0.5))
-            .padding(.horizontal, 10).frame(height: 24)
+            .foregroundStyle(on ? Color.white : Color.white.opacity(Design.Text.secondary))
+            .padding(.horizontal, 10).frame(height: 28)
+            .contentShape(Capsule())
             .background { if on { Capsule().fill(Color.white.opacity(0.14)).matchedGeometryEffect(id: "tabpill", in: tabNS) } }
         }
         .buttonStyle(.plain)
