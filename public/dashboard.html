@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rowing-call · dashboard</title>
+<link rel="stylesheet" href="dashboard.css">
+<script src="dashboard.js" type="module"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="title">
+    <h1>rowing-call</h1>
+    <p class="muted">control screen — the phone is the oar</p>
+  </div>
+  <div class="badges" aria-label="status">
+    <span id="mode-badge" class="badge dim" title="Sarvam translation mode">mode —</span>
+    <span id="phone-badge" class="badge dim" role="status">phone —</span>
+    <span id="sse-badge" class="badge dim" role="status">events —</span>
+  </div>
+  <figure class="qr">
+    <img id="qr-img" alt="QR code that opens the phone page on this server" width="132" height="132">
+    <figcaption><a id="qr-url" class="muted" href="/phone"></a></figcaption>
+  </figure>
+</header>
+
+<p class="notice">Call table is placeholder: real race calls not yet collected (UNVERIFIED)</p>
+
+<main>
+  <section class="card span2" aria-labelledby="h-stroke">
+    <h2 id="h-stroke">Stroke rate</h2>
+    <p class="huge"><output id="spm" aria-live="off">–</output><span class="unit">spm</span></p>
+    <canvas id="spark" role="img" aria-label="Line chart of stroke rate over the last 60 seconds"></canvas>
+    <p id="stroke-meta" class="muted">waiting for the phone</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-shout">
+    <h2 id="h-shout">Shout a call</h2>
+    <div class="field">
+      <label for="lang">speak the meaning to the rower in</label>
+      <select id="lang">
+        <option value="hi-IN" selected>Hindi</option>
+        <option value="bn-IN">Bengali</option>
+        <option value="od-IN">Odia</option>
+        <option value="ta-IN">Tamil</option>
+        <option value="en-IN">English</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="shout-text">typed shout (fallback)</label>
+      <input id="shout-text" type="text" maxlength="500" autocomplete="off"
+             placeholder="English drill phrase, e.g. row faster">
+    </div>
+    <div class="row">
+      <button id="send-text" type="button">Send text</button>
+      <button id="rec" type="button" aria-pressed="false">Record shout</button>
+    </div>
+    <div id="rec-ui" class="rec-ui" hidden>
+      <div class="meter" aria-hidden="true"><span id="level"></span></div>
+      <span id="rec-time">0.0 s</span>
+    </div>
+    <p id="shout-status" class="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card" aria-labelledby="h-call">
+    <h2 id="h-call">Heard call</h2>
+    <div aria-live="polite">
+      <p id="call-text" class="huge">No call yet</p>
+      <p id="call-sub" class="muted">the judge's shout, translated to English</p>
+      <dl class="facts">
+        <div><dt>meaning</dt><dd id="call-meaning">—</dd></div>
+        <div><dt>confidence</dt><dd id="call-conf">—</dd></div>
+        <div><dt>source</dt><dd><span id="call-src" class="badge dim">—</span></dd></div>
+        <div><dt>latency</dt><dd id="call-lat">—</dd></div>
+      </dl>
+      <p id="call-extra" class="muted"></p>
+      <button id="replay" type="button" disabled>Replay spoken call</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-obey">
+    <h2 id="h-obey">Obedience</h2>
+    <p id="obey-verdict" class="huge verdict none" aria-live="polite">—</p>
+    <p id="obey-detail" class="muted"></p>
+  </section>
+
+  <section class="card wide" aria-labelledby="h-evi">
+    <h2 id="h-evi">Evidence</h2>
+    <p id="tally" class="tally">no trials yet</p>
+    <div class="table-wrap">
+      <table>
+        <caption class="sr-only">all trials this session, newest first</caption>
+        <thead>
+          <tr><th scope="col">time</th><th scope="col">heard as</th><th scope="col">meaning</th>
+              <th scope="col">source</th><th scope="col">latency</th><th scope="col">outcome</th></tr>
+        </thead>
+        <tbody id="trials">
+          <tr><td colspan="6" class="muted">waiting for the first shout</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer class="muted">an induction and classroom drill — not race equipment</footer>
+
+</body>
+</html>
