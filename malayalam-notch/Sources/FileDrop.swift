@@ -55,7 +55,7 @@ final class DropModel: ObservableObject {
     func receive(_ urls: [URL]) {
         let urls = urls.filter { $0.isFileURL }
         guard !urls.isEmpty else { return }
-        if urls.count == 1, FileAnalyzer.isAudio(urls[0]) { armed = false; MalayalamViewModel.shared.handleDrop(url: urls[0]); return }
+        if urls.count == 1, FileAnalyzer.isAudio(urls[0]) { dismiss(); NotchModel.shared.pinnedUntil = Date().addingTimeInterval(45); MalayalamViewModel.shared.handleDrop(url: urls[0]); return }   // a voice note clears any old card first
         drop(urls, .analyze)
     }
 
