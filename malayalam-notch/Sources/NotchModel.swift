@@ -24,7 +24,7 @@ final class NotchModel: ObservableObject {
     var notchWidth: CGFloat = 0              // 0 on a Mac without a notch
 
     // MARK: State
-    enum Tab: CaseIterable { case voice, assistant, me, now, activity }
+    enum Tab: CaseIterable { case voice, assistant, me, now, tools, activity }
     @Published var tab: Tab = .voice
     @Published private(set) var isOpen = false
     @Published var isDragging = false        // an audio file drag is in flight near the notch

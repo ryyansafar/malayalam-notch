@@ -12,7 +12,7 @@ private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> 
         content()
     }
     .padding(.horizontal, 11).padding(.vertical, 9)
-    .frame(maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.055)))
 }
 

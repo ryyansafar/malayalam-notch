@@ -344,7 +344,10 @@ struct AssistantView: View {
             if let p = a.pending {
                 confirmCard(p)
             } else {
-                Text(a.feedback.isEmpty ? "Try “remind me to call Amma in 10 minutes”, “set a timer for 5 minutes”, “open WhatsApp”, “find my resume” or “tidy my desktop”." : a.feedback)
+                Group {
+                    if a.feedback.isEmpty { Text("Try “remind me to call Amma in 10 minutes”, “set a timer for 5 minutes”, “open WhatsApp”, “find my resume” or “tidy my desktop”.") }
+                    else { TypewriterText(text: a.feedback) }
+                }
                     .font(.system(size: 10.5, weight: a.feedback.isEmpty ? .regular : .semibold))
                     .foregroundStyle(a.feedback.isEmpty ? Color.secondary : MalayalamTheme.accent)
                     .lineLimit(4)

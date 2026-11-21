@@ -34,6 +34,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         refreshCount()
         NowPlayingModel.shared.start()
         AssistantModel.shared.start()
+        ToolsModel.shared.start()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
         model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
         // A click anywhere outside the island (the menu bar, the area behind the notch, any other app)

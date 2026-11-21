@@ -43,6 +43,7 @@ struct NotchRootView: View {
                 case .assistant: AssistantView()
                 case .me: MeView()
                 case .now: NowView()
+                case .tools: ToolsView()
                 case .activity: ActivityView()
                 }
             }
@@ -67,6 +68,7 @@ struct NotchRootView: View {
                 .frame(width: w, height: model.shapeHeight)
                 .animation(.easeOut(duration: 0.15), value: model.dropHover)
         }
+        .overlay(alignment: .top) { listeningGlow(width: w) }
     }
 
     /// Tabs on the left of the notch gap, status on the right.
@@ -76,6 +78,7 @@ struct NotchRootView: View {
             tabButton(.assistant, "sparkles", "Assistant")
             tabButton(.me, "person.crop.circle", "Me")
             tabButton(.now, "music.note.house", "Now")
+            tabButton(.tools, "wand.and.stars", "Tools")
             tabButton(.activity, "checkmark.shield", "Activity")
             Spacer()
             Spacer().frame(width: model.notchWidth)
@@ -86,16 +89,21 @@ struct NotchRootView: View {
         .frame(height: model.closedHeight)
     }
 
+    @Namespace private var tabNS
+
     private func tabButton(_ tab: NotchModel.Tab, _ symbol: String, _ label: String) -> some View {
         let on = model.tab == tab
-        return Button { withAnimation(.smooth(duration: 0.25)) { model.tab = tab } } label: {
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.72)) { model.tab = tab }
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        } label: {
             HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).symbolEffect(.bounce, value: on)
                 if on { Text(label).font(.system(size: 11, weight: .semibold)) }
             }
             .foregroundStyle(on ? Color.white : Color.white.opacity(0.5))
             .padding(.horizontal, 10).frame(height: 24)
-            .background(Capsule().fill(on ? Color.white.opacity(0.14) : Color.clear))
+            .background { if on { Capsule().fill(Color.white.opacity(0.14)).matchedGeometryEffect(id: "tabpill", in: tabNS) } }
         }
         .buttonStyle(.plain)
     }
@@ -151,6 +159,23 @@ struct EqualizerBars: View {
                 }
             }
             .frame(height: 16)
+        }
+    }
+}
+
+extension NotchRootView {
+    /// A slowly turning olive halo along the island edge while the mic is open.
+    @ViewBuilder func listeningGlow(width w: CGFloat) -> some View {
+        if MalayalamViewModel.shared.phase == .recording {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
+                let a = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3) / 3 * 360
+                NotchShape(topRadius: model.topRadius, bottomRadius: model.bottomRadius)
+                    .stroke(AngularGradient(colors: [MalayalamTheme.accent, .clear, MalayalamTheme.accent.opacity(0.6), .clear, MalayalamTheme.accent],
+                                            center: .center, angle: .degrees(a)), lineWidth: 2.2)
+                    .blur(radius: 1.5)
+                    .frame(width: w, height: model.shapeHeight)
+            }
+            .allowsHitTesting(false)
         }
     }
 }
