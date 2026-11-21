@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "01b0bb37da3834e58851c15be244ae19d0d97bd9620ce873b978ef0c1f8da196",
+  "input": {
+    "kind": "text",
+    "text": "row faster, pick up the pace",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Race faster, pick up the pace."
+  },
+  "recordedAt": "2026-11-21T17:19:02.971Z"
+}

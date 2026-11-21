@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "cffd3ae5c03f4cee529b765d746756c89dfc02dd32b0eccb217e560af21a4d79",
+  "input": {
+    "kind": "text",
+    "text": "start rowing",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Start rowing."
+  },
+  "recordedAt": "2026-11-21T16:49:16.929Z"
+}

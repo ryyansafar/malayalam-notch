@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "042b783ed303bf8645cb43d9b011fac75d224e28f522de6e9f8d6519d90f73f5",
+  "input": {
+    "kind": "text",
+    "text": "Row faster",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Row faster."
+  },
+  "recordedAt": "2026-11-21T16:48:33.682Z"
+}

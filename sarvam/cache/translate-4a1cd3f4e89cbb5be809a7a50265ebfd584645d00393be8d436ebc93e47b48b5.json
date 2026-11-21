@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "4a1cd3f4e89cbb5be809a7a50265ebfd584645d00393be8d436ebc93e47b48b5",
+  "input": {
+    "kind": "text",
+    "text": "stop, hold water",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Stop, hold the water."
+  },
+  "recordedAt": "2026-11-21T17:21:32.341Z"
+}

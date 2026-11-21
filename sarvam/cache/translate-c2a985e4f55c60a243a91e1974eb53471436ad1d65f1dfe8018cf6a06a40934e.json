@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "c2a985e4f55c60a243a91e1974eb53471436ad1d65f1dfe8018cf6a06a40934e",
+  "input": {
+    "kind": "text",
+    "text": "വേഗത്തിൽ തുഴയൂ",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Row fast"
+  },
+  "recordedAt": "2026-11-21T16:36:16.544Z"
+}

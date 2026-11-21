@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "provider": "smallest",
+  "op": "smallest-transcribe",
+  "key": "5b54556a711e484fe5a0214be69a2af9ff4352e8f040a6e394570da5c9ad064b",
+  "input": {
+    "audioSha256": "ffd0d29e883de6481d58369424cb21b272a8bd6241788695145fc3156faf9ae6",
+    "audioBytes": 68186,
+    "mime": "audio/wav",
+    "language": "ml"
+  },
+  "result": {
+    "text": "വേഗം തുഴയൂ."
+  },
+  "recordedAt": "2026-11-21T16:47:57.930Z"
+}

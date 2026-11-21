@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "op": "translate",
+  "key": "b5b0fce55ade1302e45ec95a0c11e299f3c521eeb29f506633fe5f3bb959065b",
+  "input": {
+    "kind": "text",
+    "text": "poykka vidu",
+    "sourceLang": "ml-IN"
+  },
+  "result": {
+    "text": "Leave it."
+  },
+  "recordedAt": "2026-11-21T17:10:50.044Z"
+}
