@@ -148,8 +148,11 @@ struct NowPlayingView: View {
                 ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").foregroundStyle(.secondary) }
             }
         }
-        .frame(width: 104, height: 104)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(width: 120, height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .scaleEffect(m.isPlaying ? 1 : 0.88)
+        .opacity(m.isPlaying ? 1 : 0.7)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: m.isPlaying)
         .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
     }
 
