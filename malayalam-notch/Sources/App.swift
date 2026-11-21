@@ -27,6 +27,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     private let model = NotchModel.shared
     private var dragPasteboardCount = -1
     private var dragIsAudioCache = false
+    private var dragHasFilesCache = false
+    private var shakeLastX: CGFloat = 0, shakeExtreme: CGFloat = 0, shakeDir = 0
+    private var shakeTimes: [Date] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         measureScreen()
@@ -36,6 +39,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         AssistantModel.shared.start()
         ToolsModel.shared.start()
         ClipboardModel.shared.start()
+        DropModel.shared.start()
         buildStatusItem()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
         model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
@@ -148,7 +152,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         // A drag only counts when the drag pasteboard changed since the button went down; a plain click
         // (menu bar, desktop) must never look like a drag, even if an old audio drag is still on the pasteboard.
         if !mouseDown { dragBaseline = NSPasteboard(name: .drag).changeCount }
-        model.isDragging = mouseDown && NSPasteboard(name: .drag).changeCount != dragBaseline && dragCarriesAudio()
+        let dragChanged = mouseDown && NSPasteboard(name: .drag).changeCount != dragBaseline
+        model.isDragging = dragChanged && dragCarriesAudio()
+        trackShake(loc: loc, mid: midX, dy: topY - loc.y, dragging: dragChanged && dragCarriesFiles())
+        if !mouseDown && DropModel.shared.armed { DropModel.shared.disarmSoon() }
 
         // The action area is the notch pill itself (a few points of slack, nothing beside it).
         // Closer than that (a short way around the pill) the notch only "peeks".
@@ -184,6 +191,24 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func dragCarriesFiles() -> Bool { _ = dragCarriesAudio(); return dragHasFilesCache }
+
+    /// Shake a dragged file or folder twice near the notch (side to side, behind the physical notch): the two
+    /// big drop areas open. Four direction changes of at least 24 pt within 1.6 s inside the notch's bounding area.
+    private func trackShake(loc: NSPoint, mid: CGFloat, dy: CGFloat, dragging: Bool) {
+        guard dragging, abs(loc.x - mid) < 170, dy < 100, dy > -20 else { shakeTimes.removeAll(); shakeDir = 0; shakeLastX = loc.x; shakeExtreme = loc.x; return }
+        let dx = loc.x - shakeLastX
+        if abs(dx) > 3 {
+            let dir = dx > 0 ? 1 : -1
+            if shakeDir == 0 { shakeDir = dir; shakeExtreme = loc.x }
+            else if dir == shakeDir { if (dir > 0 && loc.x > shakeExtreme) || (dir < 0 && loc.x < shakeExtreme) { shakeExtreme = loc.x } }
+            else if abs(loc.x - shakeExtreme) > 24 { shakeTimes.append(Date()); shakeDir = dir; shakeExtreme = loc.x }
+            shakeLastX = loc.x
+        }
+        shakeTimes.removeAll { Date().timeIntervalSince($0) > 1.6 }
+        if shakeTimes.count >= 4 { shakeTimes.removeAll(); DropModel.shared.arm() }
+    }
+
     /// Does the drag pasteboard carry an audio file? Cached per pasteboard change.
     private func dragCarriesAudio() -> Bool {
         let pb = NSPasteboard(name: .drag)
@@ -191,6 +216,7 @@ final class AppController: NSObject, NSApplicationDelegate {
             dragPasteboardCount = pb.changeCount
             let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
             dragIsAudioCache = urls.contains { audioExtensions.contains($0.pathExtension.lowercased()) }
+            dragHasFilesCache = !urls.isEmpty
         }
         return dragIsAudioCache
     }

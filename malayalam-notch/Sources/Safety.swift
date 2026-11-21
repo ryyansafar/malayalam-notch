@@ -45,7 +45,7 @@ enum Safety {
         case .media: return "media"; case .brightness: return "set_brightness"; case .volume: return "set_volume"
         case .appearance: return "appearance"; case .callMe: return "call_me"; case .remindCall: return "remind_call"
         case .quitApp: return "quit_app"; case .findFiles: return "find_files"; case .battery: return "battery"
-        case .briefing: return "briefing"; case .remember: return "remember"; case .tidyApply: return "tidy_apply"; case .none: return "none"
+        case .briefing: return "briefing"; case .remember: return "remember"; case .tidyApply: return "tidy_apply"; case .openURL: return "open_url"; case .none: return "none"
         }
     }
 }

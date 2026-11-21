@@ -226,12 +226,7 @@ struct MalayalamView: View {
         .animation(.smooth(duration: 0.3), value: vm.note)
         .onChange(of: targeted) { _, isTargeted in notch.dropHover = isTargeted }
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
-            guard let p = providers.first else { return false }
-            notch.pinnedUntil = Date().addingTimeInterval(8) // stay open while the note is processed
-            _ = p.loadObject(ofClass: URL.self) { url, _ in
-                guard let url else { return }
-                Task { @MainActor in vm.handleDrop(url: url) }
-            }
+            DropModel.load(providers)
             return true
         }
     }

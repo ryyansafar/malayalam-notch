@@ -14,6 +14,7 @@ import { loadEnvFile, resolveConfig, readTls, lanAddresses, bannerLines, ConfigE
 import { sniffAudio, measureDuration, cutOgg, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '../shared/audio-sniff.js';
 import { resolveWatchDirs, createWatcher } from './watcher.js';
 import { createAgent, MAX_TEXT as AGENT_MAX_TEXT } from './agent.js';
+import { createYoutube } from './youtube.js';
 import { createCaller } from './voice-call.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +44,7 @@ const DEFAULTS = Object.freeze({
 });
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
-  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'], '/api/agent': ['POST'], '/api/call': ['POST'], '/api/call/status': ['GET'],
+  '/api/state': ['GET'], '/api/phone': ['POST'], '/api/shout': ['POST'], '/api/speak': ['POST'], '/api/agent': ['POST'], '/api/analyze': ['POST'], '/api/call': ['POST'], '/api/call/status': ['GET'],
   '/api/providers': ['GET'], '/api/archive': ['GET'], '/api/archive.csv': ['GET'], '/api/archive.json': ['GET'],
   '/share': ['POST'], '/share/cut': ['POST'],
 });
@@ -212,7 +213,7 @@ function shoutOptions(body, smallest) {
  * @returns {{ server: import('node:http').Server, hub: object, archive: object, listen: Function, close: Function }}
  */
 export function createServer(deps = {}) {
-  const { sarvam, smallest = null, agent = null, caller = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
+  const { sarvam, smallest = null, agent = null, youtube = null, caller = null, archive: archiveDep = null, now = Date.now, timers = globalThis, qr = createQrRenderer(), log = () => {} } = deps;
   const cfg = Object.freeze({ lanAddresses: lanAddresses(), ...DEFAULTS, ...deps.config });
   const hub = H.createHub({ initial: H.initialState({ mode: cfg.mode, startedT: now() }), timers, keepAliveMs: cfg.keepAliveMs, maxClients: cfg.maxSseClients });
   const archive = archiveDep || createArchive({ log, now });
@@ -471,6 +472,19 @@ export function createServer(deps = {}) {
       if (failed || !tts) throw new HttpError(502, 'speak_failed', 'The speech call failed.');
       sendJson(res, 200, { ok: true, spokenText, spokenLang, ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', ttsProvider, tts: { provider: ttsProvider, latencyMs: ms(tts), source: lane(tts) } });
     },
+    'POST /api/analyze': async (req, res) => {
+      requireLocalApp(req);
+      // A file the user dropped on the notch and asked to analyze: the Mac sends only the text it extracted.
+      const body = await readJson(req, cfg.maxBodyBytes);
+      if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');
+      if (!agent) throw new HttpError(503, 'agent_unavailable', 'The assistant is not configured.');
+      const text = typeof body.text === 'string' ? body.text : '';
+      const labels = Array.isArray(body.labels) ? body.labels.filter((l) => typeof l === 'string') : [];
+      if (!text.trim() && labels.length === 0) throw bad('invalid_text', 'Nothing to analyze: no text or labels were found in the file.');
+      const summary = await agent.analyze({ name: String(body.name || ''), kind: String(body.kind || ''), text, labels });
+      if (!summary) throw new HttpError(502, 'analyze_failed', 'The analysis did not come back. Try again.');
+      sendJson(res, 200, { ok: true, summary });
+    },
     'POST /api/agent': async (req, res) => {
       requireLocalApp(req);
       // Free-form request (Malayalam or English) -> a short reply plus validated tool calls.
@@ -485,6 +499,24 @@ export function createServer(deps = {}) {
       const profile = typeof body.profile === 'string' ? body.profile.trim().slice(0, 800) : '';
       const out = await agent.run({ text, profile });
       if (!out.ok) throw new HttpError(502, out.error || 'agent_failed', 'The assistant could not answer. Try again.');
+      // "Watch this video and tell Adriel": the server finds the video and summarises it, then fills the
+      // {summary} placeholder of the message. The Mac app opens the video and prepares the chat; the user sends.
+      let video = null;
+      const wants = out.actions.find((a) => a.tool === 'youtube_summary');
+      if (wants) {
+        const rest = out.actions.filter((a) => a.tool !== 'youtube_summary');
+        const v = youtube ? await youtube.summarize(wants.args.query) : { ok: false, error: 'unavailable' };
+        if (v.ok) {
+          video = { title: v.title, url: v.url, summary: v.summary, source: v.source };
+          const note = `${v.title}: ${v.summary}${v.source === 'description' ? ' (from its description)' : ''}`.slice(0, 560);
+          out.actions = [{ tool: 'open_url', args: { url: v.url } },
+            ...rest.map((a) => (a.args?.text?.includes('{summary}') ? { ...a, args: { ...a.args, text: a.args.text.replaceAll('{summary}', note).slice(0, 600) } } : a))];
+        } else {
+          out.actions = rest.filter((a) => !a.args?.text?.includes('{summary}'));
+          out.reply = `I couldn't read that video${v.title ? ` (${v.title})` : ''}, so I did not message anyone.`;
+          if (v.url) out.actions.unshift({ tool: 'open_url', args: { url: v.url } });
+        }
+      }
       let speech = null;
       if (body.speak === true && out.reply) {
         const { ttsProvider } = shoutOptions(body, smallest);
@@ -492,7 +524,7 @@ export function createServer(deps = {}) {
         const tts = await speakWith(ttsProvider, out.reply, lang);
         if (tts) speech = { ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', lang, provider: ttsProvider };
       }
-      sendJson(res, 200, { ok: true, reply: out.reply, actions: out.actions, latencyMs: out.latencyMs ?? null, offline: out.offline === true, speech });
+      sendJson(res, 200, { ok: true, reply: out.reply, actions: out.actions, video, latencyMs: out.latencyMs ?? null, offline: out.offline === true, speech });
     },
     'GET /api/call/status': async (req, res) => {
       const missing = caller ? caller.missing() : ['SARVAM_VOICE_*'];
@@ -657,7 +689,7 @@ async function main() {
   const caller = createCaller({ env: process.env, log: warn });
   const agent = createAgent({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, log: warn });
   const app = createServer({
-    sarvam, smallest, agent, caller, archive, log: warn,
+    sarvam, smallest, agent, youtube: createYoutube({ summarize: agent.summarize, log: warn }), caller, archive, log: warn,
     config: { mode: conf.mode, https: conf.https, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);

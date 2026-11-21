@@ -6,7 +6,7 @@ OUT="${1:-$HERE/build}"
 APP="$OUT/Malayalam Notch.app"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 swiftc -O -parse-as-library -target arm64-apple-macos14.0 \
-  -framework SwiftUI -framework AppKit -framework AVFoundation -framework UniformTypeIdentifiers \
+  -framework SwiftUI -framework AppKit -framework AVFoundation -framework UniformTypeIdentifiers -framework Vision -framework PDFKit \
   "$HERE"/Sources/*.swift -o "$APP/Contents/MacOS/MalayalamNotch"
 cp "$HERE/Info.plist" "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"; [ -f "$HERE/../demo-samples/PTT-test-2.opus" ] && cp "$HERE/../demo-samples/PTT-test-2.opus" "$APP/Contents/Resources/sample.opus"

@@ -24,6 +24,12 @@ A plain walk-through of what happens when you use it, and what runs where.
    - Anything that reaches a person or can lose work (ringing a phone, quitting an app, moving Desktop files) shows a confirm card and waits; no answer in 20 s means no.
 4. The pause switch stops commands, reminders and the cloud agent. The Activity tab lists everything done.
 
+## What happens when you drag a file in
+
+1. A 30 Hz poll sees a file drag. Shaking it twice near the notch (four direction changes inside the notch's bounding area) opens two big drop areas; voice notes open the voice reader as before.
+2. **Analyze:** the Mac reads the file itself (Apple Vision text recognition for pictures, PDFKit for PDFs, plain text for text files, a name-and-size listing for folders). Only that extracted text, never the file, goes to `POST /api/analyze`, where the Sarvam chat model explains it in a few plain sentences.
+3. **Clipboard:** the file is placed on the system clipboard. If it is still there after five minutes, a notification and the open notch remind you; copying anything else clears the reminder.
+
 ## Memory and privacy
 
 Facts you tell it live in a file on this Mac (permissions 0600). Only facts marked shared, capped at 600 characters, go to the cloud model, and the exact text is shown in the Me tab. Translate-on-copy and clipboard history are off until you switch them on; passwords marked secret by password managers are never read.

@@ -149,7 +149,10 @@ final class AssistantModel: ObservableObject {
 
     /// English text (or a spoken command's transcript). Local rules first; anything they miss goes to the agent.
     func run(_ english: String, heard: String? = nil) {
-        let intent = MalayalamIntentParser.parse(english)
+        // Several steps in one sentence ("open YouTube, summarise it, then tell Adriel") are the agent's job; the
+        // quick local rules only handle one simple command and would grab just the first words.
+        let multiStep = english.range(of: #"\b(then|after that|summari[sz]e|summary|youtube|watch|and tell|and message|and send)\b|,.+,"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let intent = multiStep ? MalayalamIntent.none : MalayalamIntentParser.parse(english)
         if intent != .none {
             let line = MalayalamActions.perform(intent)
             feedback = line.isEmpty ? "Done" : line
@@ -181,7 +184,9 @@ final class AssistantModel: ObservableObject {
             let line = MalayalamActions.perform(intent, source: "agent")
             if !line.isEmpty { lines.append(line) }
         }
-        feedback = [reply, lines.joined(separator: " · ")].filter { !$0.isEmpty }.joined(separator: "\n")
+        var parts = [reply, lines.joined(separator: " · ")]
+        if let v = j["video"] as? [String: Any], let s = v["summary"] as? String { parts.append("Summary: \(s)") }
+        feedback = parts.filter { !$0.isEmpty }.joined(separator: "\n")
         if feedback.isEmpty { feedback = "I didn't get that — try rephrasing." }
         if let sp = j["speech"] as? [String: Any], let b64 = sp["ttsAudioBase64"] as? String, let audio = Data(base64Encoded: b64), !MalayalamViewModel.shared.muted {
             player = try? AVAudioPlayer(data: audio); player?.play()
@@ -199,6 +204,7 @@ final class AssistantModel: ObservableObject {
             return .remind(text: t, at: Date().addingTimeInterval(TimeInterval(m * 60)))
         case "timer": return num("seconds").map { .timer(seconds: $0) }
         case "tidy_desktop": return .tidyDesktop
+        case "open_url": return (args["url"] as? String).map { .openURL(url: $0) }
         case "translate_clipboard": return .translateClipboard
         case "media":
             switch args["command"] as? String { case "next": return .media(command: "next track"); case "previous": return .media(command: "previous track"); default: return .media(command: "playpause") }

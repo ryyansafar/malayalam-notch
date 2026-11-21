@@ -26,6 +26,7 @@ enum MalayalamIntent: Equatable {
     case battery
     case briefing
     case remember(text: String)
+    case openURL(url: String)             // a YouTube link found by the server (https, youtube hosts only)
     case tidyApply                        // actually move the planned desktop files (always confirmed)
     case none
 }

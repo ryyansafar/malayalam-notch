@@ -56,7 +56,7 @@ test('agent survives a failing upstream and empty input', async () => {
 });
 
 test('the tool list is the only surface the model can reach', () => {
-  assert.deepEqual(Object.keys(TOOLS).sort(), ['appearance', 'battery_status', 'briefing', 'call_me', 'find_files', 'media', 'open_app', 'quit_app', 'remember', 'remind', 'set_brightness', 'set_volume', 'tidy_desktop', 'timer', 'translate_clipboard', 'whatsapp']);
+  assert.deepEqual(Object.keys(TOOLS).sort(), ['appearance', 'battery_status', 'briefing', 'call_me', 'find_files', 'media', 'open_app', 'quit_app', 'remember', 'remind', 'set_brightness', 'set_volume', 'tidy_desktop', 'timer', 'translate_clipboard', 'whatsapp', 'youtube_summary']);
 });
 
 test('percent tools allow 0 and reject out-of-range values', () => {

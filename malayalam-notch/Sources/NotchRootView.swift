@@ -70,6 +70,9 @@ struct NotchRootView: View {
                 .animation(.easeOut(duration: 0.15), value: model.dropHover)
         }
         .overlay(alignment: .top) { listeningGlow(width: w) }
+        .overlay(alignment: .top) { if model.isOpen { DropLayer().padding(.horizontal, model.topRadius + 14).padding(.top, model.closedHeight + 4).padding(.bottom, 14).frame(width: w, height: model.shapeHeight) } }
+        .onDrop(of: [.fileURL], isTargeted: $rootTargeted) { providers in DropModel.load(providers); return true }
+        .onChange(of: rootTargeted) { _, t in model.dropHover = t }
     }
 
     /// Tabs on the left of the notch gap, status on the right.
@@ -85,12 +88,14 @@ struct NotchRootView: View {
             Spacer()
             Spacer().frame(width: model.notchWidth)
             Spacer()
+            WaitingChip()
             Text("\(model.notesToday) notes today").font(.system(size: 10.5, weight: .medium).monospacedDigit()).foregroundStyle(.secondary)
         }
         .padding(.horizontal, model.topRadius + 16)
         .frame(height: model.closedHeight)
     }
 
+    @State private var rootTargeted = false
     @Namespace private var tabNS
 
     private func tabButton(_ tab: NotchModel.Tab, _ symbol: String, _ label: String) -> some View {

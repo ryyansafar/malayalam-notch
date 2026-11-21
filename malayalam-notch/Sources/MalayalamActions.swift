@@ -58,6 +58,13 @@ enum MalayalamActions {
             return AssistantModel.shared.findFiles(query)
         case .battery:
             return SystemInfo.batteryLine()
+        case .openURL(let raw):
+            guard let u = URL(string: raw), u.scheme == "https",
+                  let host = u.host?.lowercased(), host == "youtube.com" || host == "www.youtube.com" || host == "youtu.be" else {
+                return "I only open YouTube links"
+            }
+            NSWorkspace.shared.open(u)
+            return "Opened the video"
         case .tidyApply:
             AssistantModel.shared.tidyDesktop()
             return AssistantModel.shared.feedback
