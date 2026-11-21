@@ -1,0 +1,14 @@
+{
+  "name": "rowing-call",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Translated rowing-call trainer: phone as oar, a shouted Malayalam call translated live, obedience measured by stroke rate.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/",
+    "record": "node sarvam/record-fixtures.js"
+  },
+  "dependencies": { "qrcode-generator": "^1.4.4" }
+}
