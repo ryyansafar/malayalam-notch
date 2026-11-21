@@ -1,6 +1,7 @@
 // rowing-call phone page: the phone is the oar.
 // Streams devicemotion samples into shared/stroke.js, posts batched stroke
-// events and a heartbeat, and plays + shows each call that arrives over SSE.
+// events and a heartbeat, plays + shows each call that arrives over SSE,
+// keeps the screen awake and gives visual + haptic feedback per stroke.
 
 const els = {
   simBadge: document.getElementById('sim-badge'),
@@ -11,6 +12,7 @@ const els = {
   startNote: document.getElementById('start-note'),
   rowScreen: document.getElementById('row-screen'),
   notice: document.getElementById('notice'),
+  hero: document.getElementById('hero'),
   spm: document.getElementById('spm'),
   count: document.getElementById('count'),
   call: document.getElementById('call'),
@@ -20,6 +22,7 @@ const els = {
   hear: document.getElementById('hear'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
+  resultStrokes: document.getElementById('result-strokes'),
   resultSub: document.getElementById('result-sub'),
   taprow: document.getElementById('taprow'),
 };
@@ -29,6 +32,14 @@ const HEARTBEAT_MS = 3000;
 const MOTION_TIMEOUT_MS = 3000;
 const SIM_TAP_WINDOW_MS = 4000;
 
+// navigator.vibrate patterns: call arrives, obeyed, not obeyed, not sure.
+const VIBE = {
+  call: [45, 60, 45],
+  obeyed: [90],
+  notObeyed: [150, 80, 150],
+  notSure: [45, 50, 45, 50, 45],
+};
+
 let detector = null;
 let started = false;
 let simulated = false;
@@ -37,11 +48,25 @@ let queue = [];
 let simCount = 0;
 let lastCount = 0;
 let simTaps = [];
+let wakeLock = null;
 const audio = new Audio();
 audio.preload = 'auto';
 
 const humanize = (meaning) =>
   typeof meaning === 'string' && meaning ? meaning.replace(/_/g, ' ').toUpperCase() : '';
+
+// iOS Safari has no navigator.vibrate; feature-detect and stay silent there.
+function buzz(pattern) {
+  if (typeof navigator.vibrate !== 'function') return;
+  try { navigator.vibrate(pattern); } catch { /* haptics must never break the page */ }
+}
+
+// Restart a one-shot CSS animation by toggling a class and forcing a reflow.
+function replayClass(el, cls) {
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
 
 function setNotice(text) {
   if (text) {
@@ -80,6 +105,7 @@ function emitStroke(ev) {
   queue.push(event);
   if (event.rateSpm !== null) els.spm.textContent = String(Math.round(event.rateSpm));
   els.count.textContent = String(event.count);
+  replayClass(els.hero, 'stroke'); // oar swing + splash ring, once per stroke
 }
 
 function flush() {
@@ -93,7 +119,19 @@ function heartbeat() {
   post('/api/phone', { userAgent: navigator.userAgent, simulated });
 }
 
-// --- audio -------------------------------------------------------------
+// --- wake lock ------------------------------------------------------------
+
+// Silently does nothing where the Screen Wake Lock API is missing or denied.
+async function holdScreen() {
+  if (!('wakeLock' in navigator) || typeof navigator.wakeLock.request !== 'function') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch {
+    wakeLock = null;
+  }
+}
+
+// --- audio ---------------------------------------------------------------
 
 // A short silent WAV built at runtime: played inside the start gesture so
 // iOS allows later programmatic play on the same element.
@@ -134,12 +172,13 @@ function playCall(call) {
   });
 }
 
-// --- server events ------------------------------------------------------
+// --- server events ---------------------------------------------------------
 
 function onCall(call) {
   els.hear.hidden = true;
   els.result.className = 'result';
   els.resultText.textContent = '';
+  els.resultStrokes.textContent = '';
   els.resultSub.textContent = '';
   els.callText.textContent = call.spokenText || humanize(call.meaning) || '…';
   els.callSub.textContent = typeof call.translatedText === 'string' && call.translatedText
@@ -148,28 +187,39 @@ function onCall(call) {
   els.callBadge.hidden = false;
   els.callBadge.textContent = call.source === 'live' ? 'LIVE' : 'REPLAY';
   els.callBadge.className = `badge ${call.source === 'live' ? 'badge-live' : 'badge-replay'}`;
+  replayClass(els.call, 'swap');
+  buzz(VIBE.call);
   playCall(call);
 }
 
+const strokeWord = (n) => `${n} stroke${n === 1 ? '' : 's'}`;
+
 function onResult(res) {
   const meaning = humanize(res.meaning);
-  const sub = typeof res.reason === 'string' && res.reason ? res.reason : '';
+  const reason = typeof res.reason === 'string' && res.reason ? res.reason : '';
+  const n = Number.isFinite(res.strokesUntilObeyed) ? res.strokesUntilObeyed : null;
+  const seen = Number.isFinite(res.strokesObserved) ? res.strokesObserved : null;
+  const took = n !== null ? n : seen;
   if (res.outcome === 'obeyed' || res.obeyed === true) {
-    const n = Number.isFinite(res.strokesUntilObeyed) ? res.strokesUntilObeyed : null;
     els.result.className = 'result is-obeyed';
-    els.resultText.textContent = n === null
-      ? `Obeyed${meaning ? ` — ${meaning}` : ''}`
-      : `Obeyed in ${n} stroke${n === 1 ? '' : 's'}${meaning ? ` — ${meaning}` : ''}`;
+    els.resultText.textContent = `Obeyed${meaning ? ` — ${meaning}` : ''}`;
+    els.resultStrokes.textContent = took === null ? '' : `took ${strokeWord(took)}`;
+    buzz(VIBE.obeyed);
   } else if (res.outcome === 'not_obeyed' || res.obeyed === false) {
     els.result.className = 'result is-not-obeyed';
     els.resultText.textContent = `Not obeyed${meaning ? ` — ${meaning}` : ''}`;
+    els.resultStrokes.textContent = seen === null ? '' : `${strokeWord(seen)} counted`;
+    buzz(VIBE.notObeyed);
   } else {
     els.result.className = 'result is-not-sure';
     els.resultText.textContent = res.status === 'not_sure'
       ? 'Not sure — ask for the call again'
       : `Not sure${meaning ? ` — ${meaning}` : ''}`;
+    els.resultStrokes.textContent = seen === null ? '' : `${strokeWord(seen)} counted`;
+    buzz(VIBE.notSure);
   }
-  els.resultSub.textContent = sub;
+  els.resultSub.textContent = reason;
+  replayClass(els.result, 'swap');
 }
 
 function connectEvents() {
@@ -180,7 +230,7 @@ function connectEvents() {
   es.addEventListener('result', (e) => { try { onResult(JSON.parse(e.data)); } catch { /* ignore bad event */ } });
 }
 
-// --- motion -------------------------------------------------------------
+// --- motion -----------------------------------------------------------------
 
 function enableSimulation(reason) {
   if (simulated) return;
@@ -251,7 +301,7 @@ async function loadDetector() {
   }
 }
 
-// --- simulated strokes ----------------------------------------------------
+// --- simulated strokes --------------------------------------------------------
 
 function simTap() {
   const t = performance.now();
@@ -266,7 +316,22 @@ function simTap() {
   emitStroke({ t, rateSpm, count: simCount });
 }
 
-// --- start -----------------------------------------------------------------
+// --- start --------------------------------------------------------------------
+
+function enterRowScreen() {
+  els.startScreen.hidden = true;
+  els.rowScreen.hidden = false;
+  holdScreen();
+  heartbeat();
+  setInterval(heartbeat, HEARTBEAT_MS);
+  setInterval(flush, STROKE_POST_MS);
+  document.addEventListener('visibilitychange', () => {
+    flush();
+    // The lock is released when the tab hides; re-acquire it on return.
+    if (document.visibilityState === 'visible') holdScreen();
+  });
+  window.addEventListener('pagehide', flush);
+}
 
 async function start() {
   if (started) return;
@@ -277,20 +342,13 @@ async function start() {
   const ok = await loadDetector();
   await setupMotion();
   if (!ok) enableSimulation('Stroke detector not loaded — motion cannot be measured.');
-  els.startScreen.hidden = true;
-  els.rowScreen.hidden = false;
-  heartbeat();
-  setInterval(heartbeat, HEARTBEAT_MS);
-  setInterval(flush, STROKE_POST_MS);
-  document.addEventListener('visibilitychange', flush);
-  window.addEventListener('pagehide', flush);
+  enterRowScreen();
 }
 
 els.start.addEventListener('click', () => {
   start().catch(() => {
     enableSimulation('Startup failed.');
-    els.startScreen.hidden = true;
-    els.rowScreen.hidden = false;
+    enterRowScreen();
   });
 });
 els.taprow.addEventListener('click', simTap);
