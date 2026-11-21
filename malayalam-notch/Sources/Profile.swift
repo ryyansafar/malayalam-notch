@@ -100,6 +100,8 @@ struct MeView: View {
                     .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 10).frame(height: 34).background(Capsule().fill(Color.white.opacity(0.09)))
+            Text("People you message").font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
+            PeopleEditor()
             Spacer(minLength: 0)
             Toggle(isOn: $p.shareWithCloud) { Text("Let the assistant use these").font(.system(size: 14, weight: .semibold)) }
                 .toggleStyle(.switch).tint(MalayalamTheme.accent)

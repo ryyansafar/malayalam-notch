@@ -164,13 +164,14 @@ final class AssistantModel: ObservableObject {
     }
 
     // MARK: Agent (Sarvam chat model via the local server)
-    func askAgent(_ text: String) async {
+    func askAgent(_ text: String, screen: String? = nil) async {
         guard !paused else { feedback = "The assistant is paused — turn it back on in Activity."; return }
         var req = URLRequest(url: server.appendingPathComponent("api/agent"))
         req.httpMethod = "POST"; req.timeoutInterval = 35
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["text": text, "speak": true, "ttsProvider": MalayalamViewModel.shared.ttsProvider]
         if let ctx = ProfileModel.shared.cloudString(), !ctx.isEmpty { body["profile"] = ctx }
+        if let screen { body["screen"] = String(screen.prefix(6000)) }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200,
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -204,6 +205,7 @@ final class AssistantModel: ObservableObject {
             return .remind(text: t, at: Date().addingTimeInterval(TimeInterval(m * 60)))
         case "timer": return num("seconds").map { .timer(seconds: $0) }
         case "tidy_desktop": return .tidyDesktop
+        case "whatsapp_voice": return (args["contact"] as? String).map { .whatsappVoice(contact: $0) }
         case "open_url": return (args["url"] as? String).map { .openURL(url: $0) }
         case "translate_clipboard": return .translateClipboard
         case "media":
@@ -371,8 +373,8 @@ struct AssistantView: View {
                 HStack(spacing: 12) {
                     tile("timer", "Set a timer") { a.submit("set a timer for 5 minutes") }
                     tile("bell", "Remind me") { a.commandText = "remind me to "; focused = true }
-                    tile("sun.max", "Read my day") { a.submit("brief me") }
-                    tile("magnifyingglass", "Find a file") { a.commandText = "find "; focused = true }
+                                        tile("magnifyingglass", "Find a file") { a.commandText = "find "; focused = true }
+                    tile("eye", "See my screen") { a.submit("what is on my screen, and what should I do next?") }
                 }
             }
             Spacer(minLength: 0)

@@ -26,6 +26,9 @@ enum MalayalamIntent: Equatable {
     case battery
     case briefing
     case remember(text: String)
+    case whatsappVoice(contact: String)    // read the latest voice note from this person in WhatsApp
+    case whatsappReply(contact: String, text: String, voice: Bool)   // prepare a reply in the chat (always confirmed)
+    case lookAtScreen(question: String)    // read what is on screen (on this Mac) and help with it
     case openURL(url: String)             // a YouTube link found by the server (https, youtube hosts only)
     case tidyApply                        // actually move the planned desktop files (always confirmed)
     case none
@@ -44,6 +47,20 @@ enum MalayalamIntentParser {
         guard !text.isEmpty else { return .none }
         let lower = text.lowercased()
 
+        // "what's on my screen", "look at my screen and ..."
+        if lower.range(of: #"\b(my screen|the screen|what am i looking at|what i'?m looking at|this page|this window)\b"#, options: .regularExpression) != nil,
+           lower.range(of: #"\b(look|see|read|analy[sz]e|what'?s|what is|explain|summari[sz]e|help|check)\b"#, options: .regularExpression) != nil {
+            return .lookAtScreen(question: text)
+        }
+        // "open the latest voice message from Amma on WhatsApp"
+        for pattern in [#"\b(?:latest|last|newest|recent)\b.*?\b(?:voice\s*(?:message|note)s?|audio|voice)\b.*?\b(?:from|of|by)\s+([a-z][a-z .'-]*?)(?:\s+(?:on|in|from)\s+whatsapp)?\s*$"#,
+                        #"\b(?:open|play|listen to|read|get)\s+([a-z][a-z .'-]*?)(?:'s|’s)\s+(?:latest|last|newest|recent)\s+(?:voice\s*(?:message|note)|audio)"#] {
+            if let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+               let r = Range(m.range(at: 1), in: lower) {
+                let who = lower[r].trimmingCharacters(in: .whitespaces)
+                if !who.isEmpty { return .whatsappVoice(contact: who.capitalized) }
+            }
+        }
         if let m = lower.range(of: #"^(please )?remember( that)?\b"#, options: .regularExpression) {
             let fact = text[text.index(text.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: m.upperBound))...].trimmingCharacters(in: .whitespaces)
             if !fact.isEmpty { return .remember(text: fact) }

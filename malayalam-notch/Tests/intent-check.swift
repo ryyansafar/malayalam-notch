@@ -41,6 +41,12 @@ let now = Date()
         } else { check("remindCall parsed", false) }
         if case .callMe(let t) = p("call me to say dinner is ready") { check("call me text", t == "dinner is ready") } else { check("callMe parsed", false) }
         print("DBG", p("ring my phone in 2 minutes to test"))
+        check("voice note from X", p("open the latest voice message from Adriel on WhatsApp") == .whatsappVoice(contact: "Adriel"))
+        check("voice note possessive", p("play Amma's latest voice note") == .whatsappVoice(contact: "Amma"))
+        check("voice note plain", p("get the last voice note of Paulyn") == .whatsappVoice(contact: "Paulyn"))
+        if case .lookAtScreen = p("what is on my screen") { check("screen look", true) } else { check("screen look", false) }
+        if case .lookAtScreen = p("please read my screen and tell me what to do") { check("screen read", true) } else { check("screen read", false) }
+        check("whatsapp plain still works", p("open WhatsApp") == .openApp(name: "whatsapp") || p("open WhatsApp") != .none)
         check("gibberish is none", p("blah blah purple") == .none)
         check("empty is none", p("   ") == .none)
         print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

@@ -497,7 +497,8 @@ export function createServer(deps = {}) {
       if (!agent) throw new HttpError(503, 'agent_unavailable', 'The assistant is not configured.');
       // Optional profile context: only what the user chose to share, capped, and never logged.
       const profile = typeof body.profile === 'string' ? body.profile.trim().slice(0, 800) : '';
-      const out = await agent.run({ text, profile });
+      const screen = typeof body.screen === 'string' ? body.screen.slice(0, 6000) : '';
+      const out = await agent.run({ text, profile, screen });
       if (!out.ok) throw new HttpError(502, out.error || 'agent_failed', 'The assistant could not answer. Try again.');
       // "Watch this video and tell Adriel": the server finds the video and summarises it, then fills the
       // {summary} placeholder of the message. The Mac app opens the video and prepares the chat; the user sends.

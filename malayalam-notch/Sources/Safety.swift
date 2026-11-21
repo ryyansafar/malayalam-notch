@@ -17,8 +17,8 @@ enum Tier: String {
 enum Safety {
     static func tier(of intent: MalayalamIntent) -> Tier {
         switch intent {
-        case .none, .battery, .briefing, .findFiles, .translateClipboard: return .read
-        case .callMe, .remindCall, .quitApp, .tidyApply: return .outbound
+        case .none, .battery, .briefing, .findFiles, .translateClipboard, .whatsappVoice, .lookAtScreen: return .read
+        case .callMe, .remindCall, .quitApp, .tidyApply, .whatsappReply: return .outbound
         default: return .reversible
         }
     }
@@ -31,6 +31,8 @@ enum Safety {
             let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
             return "Ring your phone at \(f.string(from: date)) and say: “\(text)”"
         case .quitApp(let name): return "Quit \(name). Unsaved work in it could be lost."
+        case .whatsappReply(let c, let t, let v):
+            return "Prepare a \(v ? "voice" : "text") message to \(c) in WhatsApp: “\(t)”. You press Return to send."
         case .tidyApply:
             let n = AssistantModel.shared.plan.reduce(0) { $0 + $1.files.count }
             return "Move \(n) loose files from your Desktop into folders under Desktop/Organized. Undo puts them back."
@@ -45,7 +47,7 @@ enum Safety {
         case .media: return "media"; case .brightness: return "set_brightness"; case .volume: return "set_volume"
         case .appearance: return "appearance"; case .callMe: return "call_me"; case .remindCall: return "remind_call"
         case .quitApp: return "quit_app"; case .findFiles: return "find_files"; case .battery: return "battery"
-        case .briefing: return "briefing"; case .remember: return "remember"; case .tidyApply: return "tidy_apply"; case .openURL: return "open_url"; case .none: return "none"
+        case .briefing: return "briefing"; case .remember: return "remember"; case .tidyApply: return "tidy_apply"; case .openURL: return "open_url"; case .whatsappVoice: return "whatsapp_voice"; case .whatsappReply: return "whatsapp_reply"; case .lookAtScreen: return "look_at_screen"; case .none: return "none"
         }
     }
 }

@@ -58,6 +58,18 @@ enum MalayalamActions {
             return AssistantModel.shared.findFiles(query)
         case .battery:
             return SystemInfo.batteryLine()
+        case .whatsappVoice(let name):
+            return WhatsAppVoice.shared.start(contact: name)
+        case .whatsappReply(let name, let text, let voice):
+            Task { @MainActor in
+                let line = await WhatsAppVoice.shared.prepare(contact: name, text: text, voice: voice)
+                AssistantModel.shared.feedback = line
+                Audit.record(AuditEntry(tool: "whatsapp_reply", tier: Tier.outbound.rawValue, source: "rule", result: line))
+            }
+            return "Preparing your \(voice ? "voice" : "text") message to \(name)…"
+        case .lookAtScreen(let question):
+            ScreenLook.shared.run(question: question)
+            return "Looking at your screen…"
         case .openURL(let raw):
             guard let u = URL(string: raw), u.scheme == "https",
                   let host = u.host?.lowercased(), host == "youtube.com" || host == "www.youtube.com" || host == "youtu.be" else {
@@ -134,7 +146,7 @@ enum MalayalamActions {
         }
     }
 
-    private static func number(for contact: String) -> String? {
+    static func number(for contact: String) -> String? {
         let key = contact.lowercased()
         return contacts.first(where: { $0.key.lowercased() == key })?.value
     }

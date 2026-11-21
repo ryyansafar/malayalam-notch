@@ -318,6 +318,7 @@ struct MalayalamView: View {
                 Text("Malayalam, in your notch").font(.system(size: 22, weight: .semibold)).frame(maxWidth: .infinity)
                 Text("Drop a voice note or hold to speak.").font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
             }
+            WhatsAppReplyBar()
             Spacer(minLength: 0)
             if !vm.status.isEmpty {
                 Text(vm.status).font(.system(size: 12.5)).foregroundStyle(.orange).lineLimit(2)
