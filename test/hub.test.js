@@ -216,6 +216,19 @@ test('keep-alive comments are sent on the injected interval', () => {
   assert.equal(res.chunks.at(-1), ': keep-alive\n\n');
 });
 
+test('extreme but finite phone timestamps are rejected so server times stay finite', () => {
+  const cfg = { maxStrokeBatch: 200 };
+  assert.throws(() => H.validateStrokes({ events: [{ t: 1e308, rateSpm: 20, count: 1 }] }, cfg), H.ValidationError);
+  assert.throws(() => H.validateStrokes({ events: [{ t: -1e308, rateSpm: 20, count: 1 }] }, cfg), H.ValidationError);
+  // a wild sentAt is ignored, so the anchored server time stays finite
+  const parsed = H.validateStrokes({ events: [{ t: 5, rateSpm: 20, count: 1 }], sentAt: 1e308 }, cfg);
+  const [event] = H.toServerEvents(parsed, 1_000_000);
+  assert.ok(Number.isFinite(event.t));
+  // ordinary magnitudes (uptime ms and epoch ms) still pass
+  const ok = H.validateStrokes({ events: [{ t: 1700000000000, rateSpm: 20, count: 1 }], sentAt: 1700000000001 }, cfg);
+  assert.equal(ok.sentAt, 1700000000001);
+});
+
 test('maxClients is enforced and close ends all clients and the timer', () => {
   const timers = fakeTimers();
   const hub = H.createHub({ timers, maxClients: 1 });

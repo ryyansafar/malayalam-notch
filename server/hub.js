@@ -241,13 +241,13 @@ export function validateStrokes(body, cfg) {
   const events = list.map((e, i) => {
     if (!isObject(e)) throw bad('invalid_event', `events[${i}] must be an object`);
     if (e.type !== undefined && e.type !== 'stroke') throw bad('invalid_event', `events[${i}].type must be "stroke"`);
-    if (!Number.isFinite(e.t)) throw bad('invalid_event', `events[${i}].t must be a finite number (ms)`);
+    if (!Number.isFinite(e.t) || Math.abs(e.t) > 1e15) throw bad('invalid_event', `events[${i}].t must be a finite number (ms) within +/-1e15`);
     const rate = e.rateSpm === undefined ? null : e.rateSpm;
     if (rate !== null && !(Number.isFinite(rate) && rate >= 0 && rate <= 400)) throw bad('invalid_event', `events[${i}].rateSpm must be a number between 0 and 400, or null`);
     if (!(Number.isInteger(e.count) && e.count >= 0)) throw bad('invalid_event', `events[${i}].count must be a non-negative integer`);
     return { t: e.t, rateSpm: rate, count: e.count, simulated: e.simulated === true };
   });
-  const sentAt = isObject(body) && Number.isFinite(body.sentAt) ? body.sentAt : null;
+  const sentAt = isObject(body) && Number.isFinite(body.sentAt) && Math.abs(body.sentAt) <= 1e15 ? body.sentAt : null;
   return { events, sentAt, simulated: isObject(body) && body.simulated === true };
 }
 
