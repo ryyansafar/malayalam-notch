@@ -32,7 +32,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         refreshCount()
         NowPlayingModel.shared.start()
         AssistantModel.shared.start()
-        model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
+        // Clicks pass straight through everywhere except over the visible island (updated every tick below).
+        model.onOpenChanged = { [weak self] open in if !open { self?.panel.ignoresMouseEvents = true } }
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -119,10 +120,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         let pillW = model.closedWidth + (model.extended ? model.wingExtra : 0)
         let dx = abs(loc.x - midX)
         let dy = topY - loc.y                                   // distance below the top edge
-        let onPill = dx < pillW / 2 + 3 && dy < model.closedHeight + 3
-        let nearPill = dx < pillW / 2 + 60 && dy < model.closedHeight + 50
+        let onPill = dx < max(pillW / 2, 92.5) && dy < max(model.closedHeight, 37)   // traced notch box: 185 x 37
+        let nearPill = dx < pillW / 2 + 14 && dy < model.closedHeight + 12
         let nearForDrag = dx < model.openSize.width / 2 && dy < 170
-        let openRect = dx < model.openSize.width / 2 + 20 && dy < model.openSize.height + 24
+        let openRect = dx < model.openSize.width / 2 + model.topRadius && dy < model.openSize.height
+
+        // Only the island itself takes mouse events: not its transparent corners, the shadow strip under it,
+        // or anything beside it. Closed, the window ignores the mouse completely.
+        let insideIsland = model.isOpen && dx < model.openSize.width / 2 + model.topRadius && dy < model.openSize.height
+        if panel.ignoresMouseEvents == insideIsland { panel.ignoresMouseEvents = !insideIsland }
 
         if !model.isOpen {
             let wantPeek = nearPill && !onPill && !mouseDown

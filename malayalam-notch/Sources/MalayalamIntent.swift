@@ -26,6 +26,7 @@ enum MalayalamIntent: Equatable {
     case battery
     case briefing
     case remember(text: String)
+    case tidyApply                        // actually move the planned desktop files (always confirmed)
     case none
 }
 

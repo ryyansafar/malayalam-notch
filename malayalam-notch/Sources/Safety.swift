@@ -18,19 +18,22 @@ enum Safety {
     static func tier(of intent: MalayalamIntent) -> Tier {
         switch intent {
         case .none, .battery, .briefing, .findFiles, .translateClipboard: return .read
-        case .callMe, .remindCall, .quitApp: return .outbound
+        case .callMe, .remindCall, .quitApp, .tidyApply: return .outbound
         default: return .reversible
         }
     }
 
     /// One plain line shown on the confirm card, with the exact arguments.
-    static func describe(_ intent: MalayalamIntent) -> String {
+    @MainActor static func describe(_ intent: MalayalamIntent) -> String {
         switch intent {
         case .callMe(let text): return "Ring your phone now and say: “\(text)”"
         case .remindCall(let text, let date):
             let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
             return "Ring your phone at \(f.string(from: date)) and say: “\(text)”"
         case .quitApp(let name): return "Quit \(name). Unsaved work in it could be lost."
+        case .tidyApply:
+            let n = AssistantModel.shared.plan.reduce(0) { $0 + $1.files.count }
+            return "Move \(n) loose files from your Desktop into folders under Desktop/Organized. Undo puts them back."
         default: return "Run this action"
         }
     }
@@ -42,7 +45,7 @@ enum Safety {
         case .media: return "media"; case .brightness: return "set_brightness"; case .volume: return "set_volume"
         case .appearance: return "appearance"; case .callMe: return "call_me"; case .remindCall: return "remind_call"
         case .quitApp: return "quit_app"; case .findFiles: return "find_files"; case .battery: return "battery"
-        case .briefing: return "briefing"; case .remember: return "remember"; case .none: return "none"
+        case .briefing: return "briefing"; case .remember: return "remember"; case .tidyApply: return "tidy_apply"; case .none: return "none"
         }
     }
 }

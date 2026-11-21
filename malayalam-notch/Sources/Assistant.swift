@@ -445,7 +445,7 @@ struct AssistantView: View {
             Spacer(minLength: 0)
             HStack(spacing: 6) {
                 if a.plan.isEmpty { pill("magnifyingglass", "Scan") { a.scanDesktop() } }
-                else { pill("sparkles", "Tidy") { a.tidyDesktop() } }
+                else { pill("sparkles", "Tidy…") { _ = MalayalamActions.perform(.tidyApply, source: "rule") } }
                 if a.canUndo { pill("arrow.uturn.backward", "Undo") { a.undoTidy() } }
             }
         }

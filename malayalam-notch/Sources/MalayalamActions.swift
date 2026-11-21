@@ -58,6 +58,9 @@ enum MalayalamActions {
             return AssistantModel.shared.findFiles(query)
         case .battery:
             return SystemInfo.batteryLine()
+        case .tidyApply:
+            AssistantModel.shared.tidyDesktop()
+            return AssistantModel.shared.feedback
         case .briefing:
             AssistantModel.shared.briefing()
             return "Reading your day…"
