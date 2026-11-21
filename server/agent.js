@@ -52,7 +52,7 @@ Tools (use only these):
 - battery_status {}: read the battery level.
 - briefing {}: read the user's day aloud.
 - remember {text}: save a fact the user asked you to remember.
-- whatsapp_voice {contact}: open the latest WhatsApp voice message from that person and read it for the user (it then offers a reply).
+- whatsapp_voice {contact}: open the latest WhatsApp voice message from that person and read it for the user (it then offers a reply). Use it whenever the user asks what someone's last or latest message or voice note in WhatsApp said, or wants to answer it. The contact is the person's name as the user said it (a name from the user's profile is fine, e.g. FMK).
 - youtube_summary {query}: find a YouTube video (by the user's words or a link) and summarise it. The video opens for the user and the summary is available as {summary}. When the user wants to open a video and then tell someone about it, output youtube_summary first, then whatsapp with contact and text that includes the literal placeholder {summary} (for example text: "Watch this: {summary}"). Never write a summary yourself.
 If the user only asks a question or chats, answer in "reply" and use "actions": []. Never invent facts about contacts or the user. Never claim you did something that is not in "actions".`;
 

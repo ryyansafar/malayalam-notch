@@ -157,7 +157,8 @@ final class AssistantModel: ObservableObject {
     func run(_ english: String, heard: String? = nil) {
         // Several steps in one sentence ("open YouTube, summarise it, then tell Adriel") are the agent's job; the
         // quick local rules only handle one simple command and would grab just the first words.
-        let multiStep = english.range(of: #"\b(then|after that|summari[sz]e|summary|youtube|watch|and tell|and message|and send)\b|,.+,"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let spokenSentence = english.split(separator: " ").count > 9 || english.range(of: #"\b(can you|could you|would you|tell me|what was|what is|what'?s|accordingly|reply to)\b|\?"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let multiStep = spokenSentence || english.range(of: #"\b(then|after that|summari[sz]e|summary|youtube|watch|and tell|and message|and send)\b|,.+,"#, options: [.regularExpression, .caseInsensitive]) != nil
         let intent = multiStep ? MalayalamIntent.none : MalayalamIntentParser.parse(english)
         if intent != .none {
             let line = MalayalamActions.perform(intent)
