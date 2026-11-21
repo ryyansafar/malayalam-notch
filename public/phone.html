@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>rowing-call — phone</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Cpath d='M8 1v9' stroke='%23f2f2ee' stroke-width='2'/%3E%3Cpath d='M8 9c-1.6 1.8-1.6 4.6 0 6 1.6-1.4 1.6-4.2 0-6z' fill='%236c7257'/%3E%3C/svg%3E">
+<link rel="manifest" href="phone.webmanifest">
 <link rel="stylesheet" href="phone.css">
 </head>
 <body>
@@ -66,6 +67,14 @@
       <p id="result-text" class="result-text"></p>
       <p id="result-strokes" class="result-strokes muted"></p>
       <p id="result-sub" class="result-sub muted"></p>
+    </div>
+
+    <div class="mic">
+      <button id="mic" class="btn btn-mic" type="button" aria-pressed="false">
+        <span id="mic-label">HOLD TO CALL</span>
+        <span id="mic-time" class="mic-time" hidden>0.0 s</span>
+      </button>
+      <p id="mic-note" class="muted small">Coach's mic: hold and dictate the call (max 25 s). The first press asks for the microphone — it is used only while the button is held.</p>
     </div>
 
     <button id="taprow" class="btn btn-taprow" type="button" hidden>TAP TO ROW (simulation)</button>

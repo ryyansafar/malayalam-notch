@@ -25,12 +25,17 @@ const els = {
   resultStrokes: document.getElementById('result-strokes'),
   resultSub: document.getElementById('result-sub'),
   taprow: document.getElementById('taprow'),
+  mic: document.getElementById('mic'),
+  micLabel: document.getElementById('mic-label'),
+  micTime: document.getElementById('mic-time'),
+  micNote: document.getElementById('mic-note'),
 };
 
 const STROKE_POST_MS = 500;
 const HEARTBEAT_MS = 3000;
 const MOTION_TIMEOUT_MS = 3000;
 const SIM_TAP_WINDOW_MS = 4000;
+const MIC_MAX_MS = 25000; // a dictated call may not exceed the 30 s REST limit; keep margin
 
 // navigator.vibrate patterns: call arrives, obeyed, not obeyed, not sure.
 const VIBE = {
@@ -175,6 +180,7 @@ function playCall(call) {
 // --- server events ---------------------------------------------------------
 
 function onCall(call) {
+  if (typeof call.targetLang === 'string' && call.targetLang) lastCallLang = call.targetLang;
   els.hear.hidden = true;
   els.result.className = 'result';
   els.resultText.textContent = '';
@@ -316,6 +322,130 @@ function simTap() {
   emitStroke({ t, rateSpm, count: simCount });
 }
 
+// --- coach's microphone ------------------------------------------------------
+
+// The phone doubles as the coach's microphone: a hold dictates a call, which is
+// uploaded as a phone_mic shout and arrives back here through the SSE call
+// event like any other call. Recording never touches the motion listener, so
+// stroke counting keeps running. The mic stream is opened on the first press
+// (the browser asks for permission there) and closed on every release, so the
+// microphone is only ever open while the button is held.
+let micRec = null; // { mr, stream, t0, timer, tick }
+let lastCallLang = 'en-IN'; // the language the dashboard last spoke in; a dictated call uses it
+
+const micSupported = () =>
+  Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof MediaRecorder !== 'undefined');
+
+const pickMicMime = () => ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm']
+  .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+
+function toBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+}
+
+let micStarting = false;
+
+async function startMic() {
+  if (micRec || micStarting) return;
+  if (!micSupported()) {
+    setNotice('Recording is not supported on this phone (it needs HTTPS and MediaRecorder). Use the laptop dashboard instead.');
+    return;
+  }
+  micStarting = true;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    micStarting = false;
+    setNotice(err && err.name === 'NotFoundError'
+      ? 'No microphone was found on this phone.'
+      : 'Microphone permission was denied — the coach can use the laptop dashboard instead.');
+    return;
+  }
+  const mime = pickMicMime();
+  let mr;
+  try {
+    mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch {
+    micStarting = false;
+    for (const track of stream.getTracks()) track.stop();
+    setNotice('This browser cannot record audio. Use the laptop dashboard instead.');
+    return;
+  }
+  micStarting = false;
+  const chunks = [];
+  let errored = false;
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onerror = () => {
+    errored = true; // onstop still fires after an error; it must not send
+    finishMic();
+    setNotice('Recording stopped unexpectedly. Hold the button to try again.');
+  };
+  mr.onstop = () => {
+    const blob = new Blob(chunks, { type: mr.mimeType || mime || 'audio/webm' });
+    finishMic();
+    if (!errored) sendMic(blob);
+  };
+  micRec = { mr, stream, t0: performance.now(), timer: 0, tick: 0 };
+  mr.start(250);
+  els.mic.setAttribute('aria-pressed', 'true');
+  els.mic.classList.add('is-rec');
+  els.micLabel.textContent = 'RECORDING';
+  els.micTime.hidden = false;
+  micRec.timer = setTimeout(stopMic, MIC_MAX_MS);
+  micRec.tick = setInterval(() => {
+    if (micRec) els.micTime.textContent = `${((performance.now() - micRec.t0) / 1000).toFixed(1)} s / ${Math.round(MIC_MAX_MS / 1000)} s`;
+  }, 200);
+  setNotice('Recording — release to send the call.');
+}
+
+function stopMic() {
+  if (!micRec) return;
+  try {
+    if (micRec.mr.state !== 'inactive') micRec.mr.stop(); // onstop -> finishMic -> sendMic
+  } catch {
+    finishMic();
+  }
+}
+
+function finishMic() {
+  if (!micRec) return;
+  clearTimeout(micRec.timer);
+  clearInterval(micRec.tick);
+  for (const track of micRec.stream.getTracks()) track.stop();
+  micRec = null;
+  els.mic.setAttribute('aria-pressed', 'false');
+  els.mic.classList.remove('is-rec');
+  els.micLabel.textContent = 'HOLD TO CALL';
+  els.micTime.hidden = true;
+}
+
+async function sendMic(blob) {
+  if (!blob.size) return setNotice('Nothing was recorded.');
+  setNotice('Sending the call…');
+  try {
+    const res = await fetch('/api/shout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audioBase64: toBase64(await blob.arrayBuffer()), mime: blob.type,
+        source: 'phone_mic', targetLang: lastCallLang,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.ok === false) {
+      setNotice(`Call not sent: ${(data && data.error && data.error.message) || `HTTP ${res.status}`}`);
+      return;
+    }
+    setNotice(data.translatedText ? `Heard “${data.translatedText}”.` : 'Call sent.');
+  } catch {
+    setNotice('Call not sent: could not reach the server.');
+  }
+}
+
 // --- start --------------------------------------------------------------------
 
 function enterRowScreen() {
@@ -352,6 +482,14 @@ els.start.addEventListener('click', () => {
   });
 });
 els.taprow.addEventListener('click', simTap);
+// Hold-to-record: press starts, release/cancel stops and sends.
+els.mic.addEventListener('pointerdown', (e) => { e.preventDefault(); startMic().catch(() => setNotice('Could not start recording.')); });
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) els.mic.addEventListener(ev, stopMic);
+els.mic.addEventListener('keydown', (e) => {
+  if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startMic().catch(() => {}); }
+});
+els.mic.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') stopMic(); });
+els.mic.addEventListener('contextmenu', (e) => e.preventDefault());
 els.hear.addEventListener('click', () => {
   audio.play().then(() => { els.hear.hidden = true; }).catch(() => {});
 });

@@ -105,15 +105,25 @@
     <h2 id="h-inbox">Voice-note inbox</h2>
     <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
       <p>Drop a WhatsApp voice note here, or click to choose a file</p>
-      <p id="drop-hint" class="muted">.opus .ogg .m4a .mp3 .wav — max 5 MB, clips up to 30 s (the Sarvam REST speech-to-text limit)</p>
+      <p id="drop-hint" class="muted">.opus .ogg .m4a .aac .amr .mp3 .wav .webm — max 5 MB, clips up to 30 s (the Sarvam REST speech-to-text limit). The file's own bytes decide the format.</p>
     </div>
-    <input id="file-input" type="file" accept="audio/*,.opus,.ogg,.m4a,.mp3,.wav" hidden>
+    <input id="file-input" type="file" accept="audio/*,.opus,.ogg,.oga,.m4a,.aac,.amr,.mp3,.wav,.webm,.flac" hidden>
+    <button id="cut-btn" class="mini" type="button" hidden>Use the first 30 s</button>
     <p id="inbox-status" class="status" role="status" aria-live="polite"></p>
+    <p id="watch-line" class="muted note" hidden></p>
     <p class="muted note">Transcription is Sarvam cloud speech-to-text — the audio leaves the laptop; it is not local. Audio bytes are never stored; only the translated text is kept in the archive.</p>
   </section>
 
   <section class="panel archive" aria-labelledby="h-archive">
     <h2 id="h-archive">Call archive</h2>
+    <p id="archive-summary" class="muted"></p>
+    <div class="row archive-tools">
+      <a class="mini" href="/api/archive.json" download="rowing-call-archive.json">Export JSON</a>
+      <a class="mini" href="/api/archive.csv" download="rowing-call-archive.csv">Export CSV</a>
+      <label class="lang-filter" for="archive-lang">language
+        <select id="archive-lang"><option value="">all</option></select>
+      </label>
+    </div>
     <div class="field">
       <label for="archive-q">search the archive</label>
       <input id="archive-q" type="text" autocomplete="off" placeholder="translation, meaning or language">

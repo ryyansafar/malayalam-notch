@@ -3,7 +3,7 @@
 // /api/* + /events SSE. ES module, no build step.
 
 import { createScene } from './scene.js';
-import { mimeFromName } from '/shared/audio-mime.js';
+import { sniffAudio, measureDuration, cutOgg, formatFromName, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '/shared/audio-sniff.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {};
@@ -19,14 +19,17 @@ for (const [k, id] of Object.entries({
   ttsSummary: 'tts-summary', trials: 'trials', providerNote: 'provider-note',
   coachRow: 'coach-row', coach: 'coach',
   dropzone: 'dropzone', fileInput: 'file-input', inboxStatus: 'inbox-status',
-  archiveQ: 'archive-q', archiveRows: 'archive-rows',
+  cutBtn: 'cut-btn', watchLine: 'watch-line',
+  archiveQ: 'archive-q', archiveRows: 'archive-rows', archiveLang: 'archive-lang', archiveSummary: 'archive-summary',
 })) els[k] = $(id);
 
 const SPARK_WINDOW_MS = 60_000, STROKE_STALE_MS = 4_000, PHONE_QUIET_MS = 12_000;
 const REC_MAX_MS = 8_000, MAX_STROKES = 600, MAX_AUDIO = 24;
-const NOTE_MAX_BYTES = 5 * 1024 * 1024, NOTE_MAX_SECONDS = 30; // Sarvam REST speech-to-text limit
 const PROVIDER_LABEL = { sarvam: 'Sarvam', smallest: 'smallest.ai' };
-const SOURCE_LABEL = { voice_note: 'voice note', mic: 'mic', text: 'text' };
+const SOURCE_LABEL = {
+  voice_note: 'voice note', mic: 'mic', text: 'text', phone_mic: 'phone mic',
+  whatsapp_share: 'share sheet', whatsapp_desktop: 'whatsapp desktop', watched_folder: 'watched folder', ingest: 'ingest cli',
+};
 
 const ui = {
   strokes: [], clockOffset: 0, phone: null,
@@ -80,6 +83,11 @@ function renderProviders(info) {
   if (first && !inputs.some((i) => i.checked && !i.disabled)) first.checked = true;
   els.providerNote.textContent = info ? notes.join(' · ') : 'providers unknown — Sarvam assumed';
   els.coachRow.hidden = !(info && info.coachPlayback);
+  const dirs = info && Array.isArray(info.watchDirs) ? info.watchDirs : [];
+  els.watchLine.hidden = dirs.length === 0;
+  els.watchLine.textContent = dirs.length
+    ? `watching: ${dirs.join(', ')} — new audio files there become voice notes`
+    : '';
 }
 
 const checked = (name, dflt) => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || dflt;
@@ -416,62 +424,127 @@ function toBase64(buf) {
 
 // ---------- voice-note inbox ----------
 
+let pendingCut = null; // { name, buf, mime } while a "use the first 30 s" offer is up
+
 function setInboxStatus(text, cls = '') {
   els.inboxStatus.textContent = text;
   els.inboxStatus.className = `status${cls ? ` ${cls}` : ''}`;
 }
 
-// Duration of a dropped clip, or null when the browser cannot read it
-// (some builds cannot demux Ogg/Opus — then the REST limit answer comes from Sarvam).
-function probeDuration(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const done = (sec) => { URL.revokeObjectURL(url); resolve(sec); };
-    const audio = new Audio();
-    audio.preload = 'metadata';
-    audio.addEventListener('loadedmetadata', () => done(Number.isFinite(audio.duration) ? audio.duration : null));
-    audio.addEventListener('error', () => done(null));
-    audio.src = url;
-    setTimeout(() => done(null), 4000);
-  });
+function offerCut(name, buf, mime) {
+  pendingCut = { name, buf, mime };
+  els.cutBtn.hidden = false;
+}
+
+function clearCut() {
+  pendingCut = null;
+  els.cutBtn.hidden = true;
+}
+
+async function uploadNote(name, buf, mime) {
+  setInboxStatus(`Sending "${name}" — Sarvam cloud speech-to-text…`);
+  await postShout({ audioBase64: toBase64(buf), mime, filename: name, source: 'voice_note' });
+  setInboxStatus(`"${name}" sent as a voice note.`);
 }
 
 async function sendNote(file) {
+  clearCut();
   if (file.size > NOTE_MAX_BYTES) {
-    return setInboxStatus(`"${file.name}" is ${(file.size / 1e6).toFixed(1)} MB — the limit is 5 MB.`, 'bad');
+    return setInboxStatus(`"${file.name}" is ${(file.size / 1e6).toFixed(1)} MB — the limit is ${NOTE_MAX_BYTES / 1e6} MB.`, 'bad');
   }
-  setInboxStatus(`Checking "${file.name}"…`);
-  const seconds = await probeDuration(file);
-  if (seconds !== null && seconds > NOTE_MAX_SECONDS) {
-    return setInboxStatus(`"${file.name}" is about ${Math.round(seconds)} s — Sarvam speech-to-text accepts clips up to 30 s.`, 'bad');
-  }
+  let buf;
   try {
-    const buf = await file.arrayBuffer();
-    const mime = mimeFromName(file.name, file.type);
-    setInboxStatus(`Sending "${file.name}" — Sarvam cloud speech-to-text…`);
-    await postShout({ audioBase64: toBase64(buf), mime, filename: file.name, source: 'voice_note' });
-    setInboxStatus(`"${file.name}" sent as a voice note.`);
+    buf = await file.arrayBuffer();
   } catch {
-    setInboxStatus(`Could not read "${file.name}".`, 'bad');
+    return setInboxStatus(`Could not read "${file.name}".`, 'bad');
   }
+  const bytes = new Uint8Array(buf);
+  const sniffed = sniffAudio(bytes);
+  if (!sniffed) {
+    return setInboxStatus(`"${file.name}" is not a recognised audio file (Ogg/Opus, MP3, WAV, M4A, AAC, AMR or WebM).`, 'bad');
+  }
+  // The bytes decide the format; the extension is only noted when it disagrees.
+  const byExt = formatFromName(file.name);
+  const mismatch = byExt && byExt !== sniffed.format
+    ? ` (named .${(/\.([A-Za-z0-9]+)$/.exec(file.name) || [])[1] || '?'} but actually ${sniffed.label})`
+    : '';
+  const dur = measureDuration(bytes, sniffed.format);
+  if (dur && dur.seconds > SPEECH_MAX_SECONDS) {
+    const how = dur.exact ? 'is' : 'is about';
+    const cut = sniffed.format === 'ogg' ? cutOgg(bytes, SPEECH_MAX_SECONDS) : null;
+    if (cut) {
+      offerCut(file.name, cut, sniffed.mime);
+      return setInboxStatus(
+        `"${file.name}" ${how} ${Math.round(dur.seconds)} s — the limit is ${SPEECH_MAX_SECONDS} s. It can be cut at a page boundary (nothing is re-encoded).`,
+        'warn',
+      );
+    }
+    return setInboxStatus(`"${file.name}" ${how} ${Math.round(dur.seconds)} s — Sarvam accepts clips up to ${SPEECH_MAX_SECONDS} s; send a shorter note.`, 'bad');
+  }
+  setInboxStatus(`"${file.name}" is ${sniffed.label}${mismatch}.`);
+  return uploadNote(file.name, buf, sniffed.mime);
 }
 
 // ---------- call archive ----------
 
 let archiveTimer = 0;
+let archiveEntries = []; // the last fetched list (the q= search runs on the server)
 
 async function loadArchive() {
   const q = els.archiveQ.value.trim();
   const res = await fetch(`/api/archive${q ? `?q=${encodeURIComponent(q)}` : ''}`).catch(() => null);
   const data = res && res.ok ? await res.json().catch(() => null) : null;
-  if (data && data.ok && Array.isArray(data.entries)) renderArchive(data.entries);
+  if (data && data.ok && Array.isArray(data.entries)) {
+    archiveEntries = data.entries;
+    renderArchive();
+  }
 }
 
-function renderArchive(entries) {
+// The strip is computed from the rows themselves — never from a claimed figure.
+function renderArchiveSummary() {
+  const entries = archiveEntries;
+  if (!entries.length) {
+    els.archiveSummary.textContent = '';
+    return;
+  }
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const today = entries.filter((e) => Number.isFinite(e.time) && e.time >= dayStart.getTime()).length;
+  const langs = [...new Set(entries.map((e) => e.language).filter((l) => typeof l === 'string' && l))];
+  const c = { obeyed: 0, not_obeyed: 0, not_sure: 0 };
+  for (const e of entries) if (e.verdict in c) c[e.verdict] += 1;
+  els.archiveSummary.textContent =
+    `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} · ${today} today · ` +
+    `languages: ${langs.join(', ') || '—'} · obeyed ${c.obeyed} · not obeyed ${c.not_obeyed} · not sure ${c.not_sure}`;
+}
+
+// The filter lists only the language codes Sarvam actually reported.
+function renderLangFilter() {
+  const current = els.archiveLang.value;
+  const langs = [...new Set(archiveEntries.map((e) => e.language).filter((l) => typeof l === 'string' && l))].sort();
+  els.archiveLang.textContent = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'all';
+  els.archiveLang.appendChild(all);
+  for (const l of langs) {
+    const opt = document.createElement('option');
+    opt.value = l;
+    opt.textContent = l;
+    els.archiveLang.appendChild(opt);
+  }
+  els.archiveLang.value = langs.includes(current) ? current : '';
+}
+
+function renderArchive() {
+  renderArchiveSummary();
+  renderLangFilter();
+  const lang = els.archiveLang.value;
+  const entries = lang ? archiveEntries.filter((e) => e.language === lang) : archiveEntries;
   els.archiveRows.textContent = '';
   if (!entries.length) {
     const tr = document.createElement('tr');
-    cell(tr, els.archiveQ.value.trim() ? 'nothing in the archive matches' : 'no archived calls yet', 'muted').colSpan = 8;
+    cell(tr, els.archiveQ.value.trim() || lang ? 'nothing in the archive matches' : 'no archived calls yet', 'muted').colSpan = 8;
     els.archiveRows.appendChild(tr);
     return;
   }
@@ -485,6 +558,7 @@ function renderArchive(entries) {
     const badge = document.createElement('span');
     badge.className = 'badge dim';
     badge.textContent = esc(e.language);
+    badge.title = 'language code reported by the speech API — a language only, not a dialect';
     langTd.appendChild(badge);
     cell(tr, esc(e.text));
     cell(tr, e.meaning ? human(e.meaning) : '—');
@@ -500,6 +574,21 @@ function renderArchive(entries) {
       btn.title = 'Send the translated text through the shout path again (no audio)';
       btn.addEventListener('click', () => postShout({ text: e.text }));
       action.appendChild(btn);
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'mini';
+      copy.textContent = 'Copy';
+      copy.title = 'Copy the translated text';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(e.text);
+          copy.textContent = 'Copied';
+        } catch {
+          copy.textContent = 'Failed';
+        }
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+      });
+      action.appendChild(copy);
     }
     frag.appendChild(tr);
   }
@@ -568,6 +657,13 @@ for (const ev of ['dragover', 'drop']) window.addEventListener(ev, (e) => e.prev
 els.archiveQ.addEventListener('input', () => {
   clearTimeout(archiveTimer);
   archiveTimer = setTimeout(loadArchive, 250);
+});
+els.archiveLang.addEventListener('change', renderArchive);
+els.cutBtn.addEventListener('click', () => {
+  if (!pendingCut) return;
+  const { name, buf, mime } = pendingCut;
+  clearCut();
+  uploadNote(name, buf, mime); // the Ogg page-boundary cut of the first 30 s
 });
 
 fetch('/api/state').then((r) => (r.ok ? r.json() : null)).then(applyState).catch(() => {});

@@ -276,8 +276,12 @@ function decodeAudio(raw, mimeRaw, cfg) {
   return { audio, mime };
 }
 
-// Where a shout came from: a dropped voice note, the microphone, or typed text.
-export const SHOUT_SOURCES = Object.freeze(['voice_note', 'text', 'mic']);
+// Where a shout came from: a dropped voice note, the laptop microphone, typed
+// text, the phone's hold-to-record button, an OS share sheet, a watched folder
+// or the ingest CLI. Keep in sync with SOURCES in server/archive.js.
+export const SHOUT_SOURCES = Object.freeze([
+  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest',
+]);
 
 export function validateShout(body, cfg) {
   if (!isObject(body)) throw bad('invalid_body', 'Body must be a JSON object');

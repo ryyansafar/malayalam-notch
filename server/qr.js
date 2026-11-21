@@ -163,3 +163,19 @@ export function messagePage({ title, detail }) {
     `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p><p><a href="/">Back to the start page</a></p>`,
   );
 }
+
+/**
+ * @param {{ title: string, detail: string, form?: { action: string, token: string, label: string } | null }} view
+ * @returns {string} the answer page of the /share share-target, with an optional one-button form
+ */
+export function sharePage({ title, detail, form = null }) {
+  const button = form
+    ? `<form method="post" action="${escapeHtml(form.action)}">` +
+      `<input type="hidden" name="token" value="${escapeHtml(form.token)}">` +
+      `<button class="cta" type="submit">${escapeHtml(form.label)}</button></form>`
+    : '';
+  return page(
+    title,
+    `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p>${button}<p><a href="/phone">Back to the phone page</a></p>`,
+  );
+}

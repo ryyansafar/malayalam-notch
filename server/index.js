@@ -5,10 +5,13 @@ import https from 'node:https';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import * as H from './hub.js';
-import { createArchive } from './archive.js';
-import { createQrRenderer, validateQrUrl, landingPage, messagePage, QrUnavailableError } from './qr.js';
+import { createArchive, archiveCsv, archiveJson } from './archive.js';
+import { createQrRenderer, validateQrUrl, landingPage, messagePage, sharePage, QrUnavailableError } from './qr.js';
 import { loadEnvFile, resolveConfig, readTls, lanAddresses, bannerLines, ConfigError } from './env.js';
+import { sniffAudio, measureDuration, cutOgg, NOTE_MAX_BYTES, SPEECH_MAX_SECONDS } from '../shared/audio-sniff.js';
+import { resolveWatchDirs, createWatcher } from './watcher.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_LANG = 'ml-IN';
@@ -36,11 +39,14 @@ const DEFAULTS = Object.freeze({
   secondEar: false, // SECOND_EAR=1: also transcribe the shout with smallest.ai Pulse and compare meanings
   modelFallback: false, // MODEL_FALLBACK=1: ask the classifier when the rules found no keyword at all
   modelTimeoutMs: 6500, // hard stop for the classifier; a slow model becomes "not sure"
+  watchDirs: [], // folders the voice-note watcher reads (dashboard shows them)
+  shareCutTtlMs: 120000, // how long a "use the first 30 s" offer stays valid
 });
 const ROUTES = Object.freeze({
   '/': ['GET'], '/phone': ['GET'], '/dashboard': ['GET'], '/qr.svg': ['GET'], '/events': ['GET'],
   '/api/state': ['GET'], '/api/phone': ['POST'], '/api/stroke': ['POST'], '/api/shout': ['POST'],
-  '/api/providers': ['GET'], '/api/archive': ['GET'],
+  '/api/providers': ['GET'], '/api/archive': ['GET'], '/api/archive.csv': ['GET'], '/api/archive.json': ['GET'],
+  '/share': ['POST'], '/share/cut': ['POST'],
 });
 
 class HttpError extends Error {
@@ -67,7 +73,7 @@ function send(res, status, type, body, extra = {}) {
 const sendJson = (res, status, data, extra) => send(res, status, MIME['.json'], JSON.stringify(data), extra);
 const sendPage = (res, status, html) => send(res, status, HTML, html, { 'Content-Security-Policy': PAGE_CSP });
 
-function readJson(req, limit) {
+function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const tooLarge = () => new HttpError(413, 'body_too_large', `Request body exceeds the ${limit} byte limit`, { Connection: 'close' });
     if (Number(req.headers['content-length']) > limit) {
@@ -90,17 +96,55 @@ function readJson(req, limit) {
       else chunks = [...chunks, chunk];
     });
     req.on('error', () => finish(reject, bad('unreadable_body', 'Request body could not be read')));
-    req.on('end', () => {
-      if (done) return;
-      const text = Buffer.concat(chunks).toString('utf8');
-      if (text.trim() === '') return finish(reject, bad('empty_body', 'Request body must be JSON'));
-      try {
-        finish(resolve, JSON.parse(text));
-      } catch {
-        finish(reject, bad('invalid_json', 'Request body is not valid JSON'));
-      }
-    });
+    req.on('end', () => finish(resolve, Buffer.concat(chunks)));
   });
+}
+
+async function readJson(req, limit) {
+  const text = (await readBody(req, limit)).toString('utf8');
+  if (text.trim() === '') throw bad('empty_body', 'Request body must be JSON');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw bad('invalid_json', 'Request body is not valid JSON');
+  }
+}
+
+// Splits a multipart/form-data body into parts. Binary-safe (Buffer indexes).
+function parseMultipart(buf, contentType) {
+  const m = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(String(contentType));
+  if (!m) return [];
+  const boundary = Buffer.from(`--${m[1] || m[2]}`, 'latin1');
+  const parts = [];
+  let pos = buf.indexOf(boundary);
+  while (pos !== -1) {
+    let start = pos + boundary.length;
+    if (buf[start] === 0x2d && buf[start + 1] === 0x2d) break; // closing --
+    if (buf[start] === 0x0d && buf[start + 1] === 0x0a) start += 2;
+    const headerEnd = buf.indexOf('\r\n\r\n', start);
+    if (headerEnd === -1) break;
+    const headers = {};
+    for (const line of buf.slice(start, headerEnd).toString('latin1').split('\r\n')) {
+      const i = line.indexOf(':');
+      if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    }
+    const dataStart = headerEnd + 4;
+    const next = buf.indexOf(boundary, dataStart);
+    const end = next === -1 ? buf.length : next;
+    const data = end - 2 >= dataStart ? buf.slice(dataStart, end - 2) : buf.slice(dataStart, end); // strip the CRLF before the boundary
+    const disp = headers['content-disposition'] || '';
+    const name = (/(?:^|;)\s*name="([^"]*)"/.exec(disp) || [])[1] ?? null;
+    const filename = (/(?:^|;)\s*filename="([^"]*)"/.exec(disp) || [])[1] ?? null;
+    parts.push({ name, filename, type: headers['content-type'] || null, data });
+    pos = next === -1 ? -1 : next;
+  }
+  return parts;
+}
+
+// A shared file name (browsers may send a full path): keep only the base name.
+function safeFilename(raw) {
+  const base = String(raw || '').split(/[\\/]/).pop().replace(/[\u0000-\u001f]/g, '').slice(0, 200).trim();
+  return base || 'shared-audio';
 }
 
 function decodePath(raw) {
@@ -177,6 +221,7 @@ export function createServer(deps = {}) {
   let shoutInFlight = false;
   let pending = null;
   const pendingArchive = new Map(); // callId -> archive entry id, until the verdict lands
+  const pendingCuts = new Map(); // token -> { bytes, mime, filename, expiresT } for a /share "first 30 s" offer
 
   const sweep = timers.setInterval(() => {
     const { phone } = hub.getState();
@@ -396,6 +441,18 @@ export function createServer(deps = {}) {
   // The model fallback runs after them and adds its own time.
   const heardMs = ({ tr, second, model }) => Math.max(ms(tr), second ? ms(second) : 0) + (model ? ms(model) : 0);
 
+  // One shout at a time; /api/shout, /share and the watched-folder ingest all come through here.
+  async function processShout(input) {
+    if (shoutInFlight) throw new HttpError(429, 'busy', 'Another shout is being processed. Try again in a moment.', { 'Retry-After': '1' });
+    shoutInFlight = true;
+    try {
+      const [result, coach] = await Promise.all([runShout(input), coachPlayback(input)]);
+      return { ...result, ...coach };
+    } finally {
+      shoutInFlight = false;
+    }
+  }
+
   async function runShout(input) {
     const heard = await withModel(await hear(input));
     const { tr, translatedText, match, ears, second, model } = heard;
@@ -453,8 +510,17 @@ export function createServer(deps = {}) {
       defaultTtsProvider: DEFAULT_TTS_PROVIDER,
       coachPlayback: Boolean(smallest && typeof smallest.speakMalayalam === 'function'),
       secondEar: Boolean(cfg.secondEar && smallest && typeof smallest.transcribe === 'function'),
+      watchDirs: Array.isArray(cfg.watchDirs) ? cfg.watchDirs.slice(0, 10) : [],
       ...(modelFallbackOn ? { modelFallback: true } : {}), // absent when off, so the default answer is unchanged
     };
+  }
+
+  // One plain sentence for the share-target answer page.
+  function shareDetail(result) {
+    const heard = result.translatedText ? `heard "${result.translatedText}"` : 'nothing could be translated';
+    return result.meaning
+      ? `${heard} — spoken to the rower as "${String(result.meaning).replace(/_/g, ' ')}".`
+      : `${heard} — meaning not recognised (not sure). Ask for the call again.`;
   }
 
   const handlers = {
@@ -500,13 +566,68 @@ export function createServer(deps = {}) {
     'POST /api/shout': async (req, res) => {
       const body = await readJson(req, cfg.maxBodyBytes);
       const input = { ...H.validateShout(body, cfg), ...shoutOptions(body, smallest) };
-      if (shoutInFlight) throw new HttpError(429, 'busy', 'Another shout is being processed. Try again in a moment.', { 'Retry-After': '1' });
-      shoutInFlight = true;
+      const result = await processShout(input);
+      sendJson(res, 200, { ok: true, ...result });
+    },
+    'GET /api/archive.csv': async (req, res) => {
+      send(res, 200, 'text/csv; charset=utf-8', archiveCsv(archive.list()), { 'Content-Disposition': 'attachment; filename="rowing-call-archive.csv"' });
+    },
+    'GET /api/archive.json': async (req, res) => {
+      send(res, 200, MIME['.json'], archiveJson(archive.list()), { 'Content-Disposition': 'attachment; filename="rowing-call-archive.json"' });
+    },
+    'POST /share': async (req, res, query) => {
+      // Web Share Target (public/phone.webmanifest): the OS share sheet posts
+      // the voice note here. The answer is a small HTML page, not JSON.
+      const ctype = String(req.headers['content-type'] || '');
+      if (!/^multipart\/form-data/i.test(ctype)) {
+        return sendPage(res, 400, sharePage({ title: 'No file shared', detail: 'The share did not contain a file.' }));
+      }
+      const part = parseMultipart(await readBody(req, cfg.maxBodyBytes), ctype).find((p) => p.filename && p.data.length > 0);
+      if (!part) return sendPage(res, 400, sharePage({ title: 'No audio file', detail: 'The shared item did not contain an audio file.' }));
+      const filename = safeFilename(part.filename);
+      if (part.data.length > NOTE_MAX_BYTES) {
+        return sendPage(res, 200, sharePage({ title: 'Note too large', detail: `"${filename}" is ${(part.data.length / 1e6).toFixed(1)} MB; the limit is ${NOTE_MAX_BYTES / 1e6} MB.` }));
+      }
+      const sniffed = sniffAudio(part.data);
+      if (!sniffed) {
+        return sendPage(res, 200, sharePage({ title: 'Not an audio file', detail: `"${filename}" is not a recognised audio file (Ogg/Opus, MP3, WAV, M4A, AAC, AMR or WebM).` }));
+      }
+      const lang = H.LANGS.includes(query.get('lang')) ? query.get('lang') : 'en-IN';
+      const dur = measureDuration(part.data, sniffed.format);
+      if (dur && dur.seconds > SPEECH_MAX_SECONDS) {
+        const how = dur.exact ? 'is' : 'is about';
+        const cut = sniffed.format === 'ogg' ? cutOgg(part.data, SPEECH_MAX_SECONDS) : null;
+        if (!cut) {
+          return sendPage(res, 200, sharePage({ title: 'Note too long', detail: `"${filename}" ${how} ${Math.round(dur.seconds)} s; Sarvam speech-to-text accepts clips up to ${SPEECH_MAX_SECONDS} s. Send a shorter note.` }));
+        }
+        const token = randomBytes(10).toString('hex');
+        for (const [k, v] of pendingCuts) if (v.expiresT <= now()) pendingCuts.delete(k);
+        pendingCuts.set(token, { bytes: cut, mime: sniffed.mime, filename, expiresT: now() + cfg.shareCutTtlMs });
+        return sendPage(res, 200, sharePage({
+          title: 'Note too long',
+          detail: `"${filename}" ${how} ${Math.round(dur.seconds)} s; the limit is ${SPEECH_MAX_SECONDS} s. The first 30 seconds can be cut at a page boundary — nothing is re-encoded.`,
+          form: { action: '/share/cut', token, label: 'Use the first 30 seconds' },
+        }));
+      }
       try {
-        const [result, coach] = await Promise.all([runShout(input), coachPlayback(input)]);
-        sendJson(res, 200, { ok: true, ...result, ...coach });
-      } finally {
-        shoutInFlight = false;
+        const result = await processShout({ audio: part.data, mime: sniffed.mime, filename, source: 'whatsapp_share', targetLang: lang, ttsProvider: DEFAULT_TTS_PROVIDER, coachPlayback: false });
+        return sendPage(res, 200, sharePage({ title: 'Voice note heard', detail: shareDetail(result) }));
+      } catch (err) {
+        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The shout could not be processed.' }));
+      }
+    },
+    'POST /share/cut': async (req, res) => {
+      const token = new URLSearchParams((await readBody(req, cfg.maxBodyBytes)).toString('utf8')).get('token');
+      const held = token ? pendingCuts.get(token) : null;
+      pendingCuts.delete(token);
+      if (!held || held.expiresT <= now()) {
+        return sendPage(res, 200, sharePage({ title: 'Offer expired', detail: 'That "first 30 seconds" offer is no longer held. Share the note again.' }));
+      }
+      try {
+        const result = await processShout({ audio: held.bytes, mime: held.mime, filename: held.filename, source: 'whatsapp_share', targetLang: 'en-IN', ttsProvider: DEFAULT_TTS_PROVIDER, coachPlayback: false });
+        return sendPage(res, 200, sharePage({ title: 'Voice note heard', detail: `first 30 s of "${held.filename}". ${shareDetail(result)}` }));
+      } catch (err) {
+        return sendPage(res, err instanceof HttpError && err.status === 429 ? 200 : 500, sharePage({ title: 'Not sent', detail: err instanceof HttpError ? err.message : 'The shout could not be processed.' }));
       }
     },
   };
@@ -601,17 +722,60 @@ async function main() {
     ? fallback.createMeaningClassifier({ apiKey: conf.apiKeyPresent ? process.env.SARVAM_API_KEY.trim() : undefined, mode: conf.requestedMode, cacheDir, log: clientLog })
     : null;
   const archive = createArchive({ file: path.join(ROOT, 'data', 'archive.jsonl'), log: warn });
+  const watch = resolveWatchDirs({ env: process.env });
+  const watchLang = H.LANGS.includes(process.env.WATCH_LANG) ? process.env.WATCH_LANG : 'en-IN';
   const app = createServer({
     sarvam, smallest, classifier, archive, matchReason: calls.noMatchReason, matchMeaning: calls.matchMeaning, evaluate: obedience.evaluate, log: warn,
-    config: { mode: conf.mode, https: conf.https, secondEar, modelFallback, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', ...(conf.https ? { tls: readTls(conf) } : {}) },
+    config: { mode: conf.mode, https: conf.https, secondEar, modelFallback, sarvamKeyPresent: conf.apiKeyPresent, smallestKeyPresent: smallestKey !== '', watchDirs: watch.dirs.map((d) => d.dir), ...(conf.https ? { tls: readTls(conf) } : {}) },
   });
   const { port } = await app.listen(conf.port);
   for (const line of bannerLines({ ...conf, port, addresses: lanAddresses() })) say(line);
   say(`smallest.ai: ${smallest.mode === 'live' ? 'LIVE' : 'REPLAY'} (SMALLEST_API_KEY ${smallestKey ? 'set' : 'not set'}), second ear ${secondEar ? 'ON' : 'off'}`);
   say(`model fallback: ${classifier ? `ON (${classifier.model}, ${classifier.mode === 'live' ? 'LIVE' : 'REPLAY'}, only when the rules find no keyword)` : 'off'}`);
   say(`call archive: data/archive.jsonl (${archive.size} entr${archive.size === 1 ? 'y' : 'ies'}, newest first, capped at 500)`);
+
+  // Watched-folder ingest: audio files that appear in the inbox (or in
+  // WATCH_DIRS folders) are posted to this server's own shout endpoint.
+  // Over-limit notes are reported and skipped — never silently truncated.
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const postWatchedNote = async (info) => {
+    if (info.seconds !== null && info.seconds > SPEECH_MAX_SECONDS) {
+      warn(`[watch] ${info.filename}: ${info.exact ? 'is' : 'is about'} ${Math.round(info.seconds)} s — over the ${SPEECH_MAX_SECONDS} s speech-to-text limit; ignored`);
+      return;
+    }
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/shout`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64: info.bytes.toString('base64'), mime: info.mime,
+            filename: info.filename, source: info.source, targetLang: watchLang,
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.status === 429) {
+          await sleep(3000);
+          continue; // a shout was in flight; try again
+        }
+        if (!res.ok || !data || data.ok === false) {
+          warn(`[watch] ${info.filename}: ${(data && data.error && data.error.message) || `HTTP ${res.status}`}`);
+        }
+        return;
+      } catch (err) {
+        warn(`[watch] ${info.filename}: post failed (${err.code || err.name})`);
+        return;
+      }
+    }
+    warn(`[watch] ${info.filename}: the server stayed busy; dropped`);
+  };
+  const watcher = createWatcher({ dirs: watch.dirs, ingest: postWatchedNote, log: warn });
+  const watching = await watcher.start();
+  if (watching > 0) say(`watching: ${watch.dirs.map((d) => d.dir).join(', ')} (new audio files become voice notes, ${watchLang})`);
+  for (const line of watch.warnings) warn(`Warning: ${line}`);
+
   const shutdown = () => {
     say('Shutting down');
+    watcher.close();
     app.close().then(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };

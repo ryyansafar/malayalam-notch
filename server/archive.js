@@ -6,7 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const ARCHIVE_MAX = 500;
-export const SOURCES = Object.freeze(['voice_note', 'text', 'mic']);
+// Keep in sync with SHOUT_SOURCES in server/hub.js.
+export const SOURCES = Object.freeze([
+  'voice_note', 'text', 'mic', 'phone_mic', 'whatsapp_share', 'whatsapp_desktop', 'watched_folder', 'ingest',
+]);
 export const VERDICTS = Object.freeze(['obeyed', 'not_obeyed', 'not_sure']);
 
 const TEXT_MAX = 2000;
@@ -121,4 +124,31 @@ export function createArchive({ file = null, maxEntries = ARCHIVE_MAX, now = Dat
     get size() { return entries.length; },
     file,
   };
+}
+
+// ---- export -------------------------------------------------------------
+// Downloads of the archive. Entries never carry audio, so the export is text
+// only. CSV cells are quoted when they contain a comma, a quote or a line
+// break; embedded quotes are doubled.
+
+export const CSV_COLUMNS = Object.freeze([
+  'id', 'time', 'source', 'filename', 'language', 'text', 'meaning', 'confidence', 'verdict', 'reason',
+]);
+
+function csvCell(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function archiveCsv(entries) {
+  const head = CSV_COLUMNS.join(',');
+  const rows = entries.map((e) => CSV_COLUMNS.map((col) => {
+    const v = col === 'time' && Number.isFinite(e.time) ? new Date(e.time).toISOString() : e[col];
+    return csvCell(v);
+  }).join(','));
+  return `${head}\n${rows.join('\n')}${rows.length ? '\n' : ''}`;
+}
+
+export function archiveJson(entries) {
+  return JSON.stringify({ entries, exportedAt: new Date().toISOString() }, null, 2);
 }

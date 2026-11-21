@@ -294,6 +294,33 @@ h1 {
 .is-not-obeyed .result-text { color: var(--red); }
 .is-not-sure .result-text { color: var(--amber); }
 
+/* coach's microphone */
+.mic { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.btn-mic {
+  width: 100%;
+  min-height: 16vh;
+  min-height: 16dvh;
+  font-size: clamp(1.4rem, 6.5vw, 2.2rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-color: var(--olive-hi);
+}
+
+.btn-mic.is-rec {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.mic-time {
+  font-size: 0.55em;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
 /* simulation */
 .btn-taprow {
   margin-top: auto;

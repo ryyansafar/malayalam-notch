@@ -9,7 +9,8 @@
     "start": "node server/index.js",
     "notch": "mkdir -p notch-app/build && swiftc -O -framework AppKit -framework WebKit -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker notch-app/Info.plist notch-app/NotchApp.swift -o notch-app/build/notch && notch-app/build/notch",
     "test": "node --test test/",
-    "record": "node sarvam/record-fixtures.js"
+    "record": "node sarvam/record-fixtures.js",
+    "ingest": "node server/ingest.js"
   },
   "dependencies": { "qrcode-generator": "^1.4.4" }
 }

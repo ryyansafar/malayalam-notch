@@ -437,6 +437,7 @@ test('GET /api/providers: booleans and modes only', async () => {
       ok: true,
       providers: { sarvam: { configured: true, mode: 'replay' }, smallest: { configured: true, mode: 'live' } },
       ttsProviders: ['sarvam', 'smallest'], defaultTtsProvider: 'sarvam', coachPlayback: true, secondEar: true,
+      watchDirs: [],
     });
     const b = await call(bare.port, 'GET', '/api/providers');
     assert.deepEqual(b.json.providers.smallest, { configured: false, mode: null });
