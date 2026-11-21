@@ -8,7 +8,7 @@ import SwiftUI
 
 private func card<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
     VStack(alignment: .leading, spacing: 7) {
-        Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary))
+        if !title.isEmpty { Text(Design.sentence(title)).font(Design.Font.caption).foregroundStyle(.white.opacity(Design.Text.tertiary)) }
         content()
     }
     .padding(.horizontal, 11).padding(.vertical, 9)
@@ -35,9 +35,11 @@ struct NowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            card("NOW PLAYING") { NowPlayingView() }.frame(width: 290)
-            card("THIS MAC") { systemArea }.frame(width: 240)
-            card("YOUR DAY") { dayArea }.frame(maxWidth: .infinity)
+            card("") { NowPlayingView() }.frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 18) {
+                card("THIS MAC") { systemArea }
+                card("YOUR DAY") { dayArea }
+            }.frame(width: 250)
         }
         .onReceive(timer) { tick = $0 }
     }
@@ -47,8 +49,6 @@ struct NowView: View {
             let b = SystemInfo.battery()
             stat("battery.100", "Battery", b.map { "\($0.percent)%\($0.charging ? " · charging" : "")" } ?? "—")
             stat("internaldrive", "Free space", SystemInfo.diskFreeGB().map { "\($0) GB" } ?? "—")
-            stat("clock", "Up for", SystemInfo.uptimeText())
-            stat("app.badge", "Apps open", "\(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.count)")
             Spacer(minLength: 0)
         }.id(tick)
     }
@@ -73,7 +73,6 @@ struct NowView: View {
                     Text(r.fire, style: .time).font(.system(size: 12.5).monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
-            if !a.briefingText.isEmpty { Text(a.briefingText).font(.system(size: 12.5)).foregroundStyle(.tertiary).lineLimit(3) }
             Spacer(minLength: 0)
             pill("speaker.wave.2.fill", "Read my day in Malayalam") { a.briefing() }
         }

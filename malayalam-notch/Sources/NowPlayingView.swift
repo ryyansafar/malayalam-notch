@@ -17,6 +17,8 @@ final class NowPlayingModel: ObservableObject {
     @Published var isPlaying = false
     @Published var artwork: NSImage?
     @Published var progress: Double = 0
+    @Published var elapsed: Double = 0      // seconds
+    @Published var total: Double = 0        // seconds
 
     private var timer: Timer?
     private var lastArtKey = ""
@@ -48,7 +50,9 @@ final class NowPlayingModel: ObservableObject {
         title = info[0]; artist = info[1]; app = p.name
         isPlaying = info[3] == "playing"
         let dur = Double(info[2]) ?? 0, pos = Double(info[4]) ?? 0
-        progress = dur > 0 ? min(max(pos / (p.name == "Spotify" ? dur / 1000 : dur), 0), 1) : 0
+        let durSec = p.name == "Spotify" ? dur / 1000 : dur
+        progress = dur > 0 ? min(max(pos / durSec, 0), 1) : 0
+        elapsed = pos; total = durSec
         loadArtwork(p, key: "\(p.name)|\(title)|\(artist)")
     }
 
@@ -121,24 +125,32 @@ struct NowPlayingView: View {
                 Text("Nothing playing").font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(Design.Text.secondary)).frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
-                artworkView
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(m.title).font(.system(size: 17, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    Text(m.artist).font(.system(size: 14)).foregroundStyle(.white.opacity(Design.Text.secondary)).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                ProgressView(value: m.progress).progressViewStyle(.linear).tint(MalayalamTheme.accent).frame(height: 3)
-                HStack(spacing: 26) {
-                    Spacer(minLength: 0)
-                    transport("backward.fill", 18) { m.previous() }
-                    transport(m.isPlaying ? "pause.fill" : "play.fill", 26) { m.playPause() }
-                    transport("forward.fill", 18) { m.next() }
-                    Spacer(minLength: 0)
+                HStack(alignment: .center, spacing: 22) {
+                    artworkView
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(m.title).font(.system(size: 20, weight: .bold)).lineLimit(1)
+                        Text(m.artist).font(.system(size: 16, weight: .medium)).foregroundStyle(MalayalamTheme.accent).lineLimit(1)
+                        Spacer(minLength: 4)
+                        ProgressView(value: m.progress).progressViewStyle(.linear).tint(MalayalamTheme.accent).frame(height: 5)
+                        HStack {
+                            Text(Self.clock(m.elapsed)); Spacer(); Text(Self.clock(m.total))
+                        }.font(.system(size: 12.5, weight: .medium).monospacedDigit()).foregroundStyle(.white.opacity(Design.Text.secondary))
+                        HStack(spacing: 30) {
+                            Spacer(minLength: 0)
+                            transport("backward.fill", 20) { m.previous() }
+                            transport(m.isPlaying ? "pause.fill" : "play.fill", 32) { m.playPause() }
+                            transport("forward.fill", 20) { m.next() }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .frame(maxHeight: 150)
                 }
             }
         }
         .onAppear { m.start() }
     }
+
+    static func clock(_ s: Double) -> String { let n = max(0, Int(s)); return String(format: "%d:%02d", n / 60, n % 60) }
 
     private var artworkView: some View {
         Group {
@@ -148,8 +160,8 @@ struct NowPlayingView: View {
                 ZStack { Color.white.opacity(0.08); Image(systemName: "music.note").foregroundStyle(.secondary) }
             }
         }
-        .frame(width: 120, height: 120)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(width: 150, height: 150)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .scaleEffect(m.isPlaying ? 1 : 0.88)
         .opacity(m.isPlaying ? 1 : 0.7)
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: m.isPlaying)
