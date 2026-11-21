@@ -4,6 +4,33 @@
 
 Built at Hackathoni (Alappuzha, 21-22 Nov 2026). A native SwiftUI app for the notch (`malayalam-notch/`, written from scratch, no Xcode project needed) plus a Node 20 server (one runtime dependency, a QR code library) that talks to Sarvam and smallest.ai.
 
+Reviewing this project? Start at [REVIEWING.md](REVIEWING.md).
+
+## Screenshots
+
+All taken from the running app; the icon strip along the top of each card is the open island's tab bar.
+
+![The Assistant tab: a command bar, quick tiles and app launchers](docs/screenshots/02-assistant.png)
+*Assistant — a command bar that takes English or Malayalam, with tiles for timer, reminder, find a file and "see my screen", and app launchers underneath.*
+
+![The Analyze and Clipboard drop areas](docs/screenshots/03-drop-areas.png)
+*Shaking a file near the notch opens two drop areas: Analyze (explains pictures, PDFs, text and folders) and Clipboard (copies it).*
+
+![An Analyze result card explaining a dropped image](docs/screenshots/03b-analyze-result.png)
+*An Analyze result — a plain-language explanation of a dropped image, with Copy text and Keep file on shelf.*
+
+![The Activity view: audit log, pause switch and voice reminders](docs/screenshots/04-shelf.png)
+*The Activity view — an audit log of everything the assistant did, the pause switch, and spoken-reminder controls.*
+
+![The Now tab: music, Mac stats and a Malayalam briefing](docs/screenshots/05-now.png)
+*Now — now-playing with artwork and controls, this Mac's battery and free space, and "Read my day in Malayalam".*
+
+![The Me tab: name, people and shared facts](docs/screenshots/06-me.png)
+*Me — your name, people and the facts the assistant may share; the share switch is opt-in and "Forget everything" deletes them.*
+
+![The Voice tab: drop a voice note or tap to speak](docs/screenshots/07-activity.png)
+*Voice — drop a voice note or tap to speak, with voice and language pickers and the translate-on-copy switch along the bottom.*
+
 ## What it is
 
 A Malayalam-first assistant that lives in the notch:
@@ -33,6 +60,17 @@ scripts/notch.sh toggle   # start/stop the server and the notch together
 - `SARVAM_MODE=replay npm start` — run offline against recorded fixtures in `sarvam/cache` (`npm run record` records more; needs a key).
 
 Voice notes also arrive automatically: the server watches `~/Downloads/malayalam-notch-inbox` (create it or let the server do it, then save a voice note there from WhatsApp Desktop — right-click → Download). `WATCH_DIRS` adds more folders, `WATCH_INBOX=0` turns the default off. Files are only read, never modified, and nothing is sent from or to WhatsApp itself.
+
+## Examples
+
+Six things you can actually do, and what happens. Measured on this build: a dropped voice note comes back as Malayalam script, English letters and English in about 1.3 s; the assistant answers a command in about 0.4 to 0.6 s; `npm test` runs 152 server tests with no network.
+
+1. **Say "open the latest voice message from Adriel on WhatsApp".** The notch finds the newest voice note WhatsApp Desktop stored for that person (their number goes under Me → People, and macOS needs Full Disk Access), reads it as script, English letters and English, then offers a reply — type or talk, pick Text or Voice, approve the confirm card, and it is sent for you.
+2. **Ask "what is on my screen?"** The notch captures the screen, reads the text on it on-device and sends only that text to the assistant, which answers (Screen Recording permission needed).
+3. **Shake a file at the notch — twice side to side, a little below the top edge.** Two drop areas open: *Analyze* explains the file in plain words, *Clipboard* copies it so you can paste or drag it anywhere.
+4. **Say "remind me tomorrow at 6 am to call Amma".** A reminder is set; when it fires, it is spoken aloud on the Mac and shows on the closed notch.
+5. **Say "set a timer for 5 minutes".** A timer starts and sounds when it ends — handled by the local rules, no cloud round-trip.
+6. **Drop a Malayalam WhatsApp voice note (`PTT-*.opus`) on the notch.** The island expands as the file approaches, and the card returns the note as Malayalam script, English letters and English, with a Speak button (Sarvam Bulbul, or smallest.ai as a second voice).
 
 ## The notch
 
@@ -124,6 +162,11 @@ docs/      DESIGN.md, DRAG-FINDINGS.md, SARVAM-FINDINGS.md, NOTCH-REFERENCE.md, 
 - **Language, not dialect.** The API reports a language code (usually `ml-IN`); we report exactly that and never invent dialect claims.
 - **Partial results.** If one of the three speech modes fails, the card shows the others and names the missing one — nothing is fabricated.
 - **LIVE and REPLAY.** Every note is badged by lane. REPLAY means a recorded answer to that exact input from an earlier live call.
+- **30 s per clip.** Audio is capped at 5 MB and 30 seconds (the Saaras REST limit); a longer Ogg note can be losslessly cut to the first 30 s.
+- **Malayalam is an input, not an output.** Voice notes are understood in Malayalam but the written translation comes back in English; Malayalam is not offered as a translation target.
+- **Phone calls need a Sarvam number.** "Ring my phone" works only when the `SARVAM_VOICE_*` ids are configured; otherwise the same reminder is simply spoken on the Mac.
+- **WhatsApp features need macOS permissions.** Reading WhatsApp's voice-note folder needs Full Disk Access; sending a reply for you needs Accessibility; "see my screen" needs Screen Recording. The app asks and says why.
+- **The sample voice notes are synthetic.** `demo-samples/` and the pitch audio are Sarvam/smallest.ai generated speech — they prove the pipeline works, not accuracy on real voices.
 - **Real drags need Accessibility permission** for the automated test rig (`tools/dragtest`); the drag itself works without it — only the synthetic test events do.
 
 ## Tracks
