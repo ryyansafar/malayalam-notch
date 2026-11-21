@@ -7,70 +7,12 @@
 //
 
 import AppKit
+import AVFoundation
 import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 import Vision
-
-struct Extracted { let kind: String; let text: String; let labels: [String] }
-
-enum FileAnalyzer {
-    static let textExts: Set<String> = ["txt", "md", "csv", "json", "html", "xml", "swift", "js", "ts", "py", "log", "yaml", "yml", "rtf", "srt", "vtt"]
-    static let audioExts: Set<String> = ["opus", "ogg", "m4a", "mp3", "wav", "aac", "amr", "webm", "flac"]
-
-    static func isAudio(_ url: URL) -> Bool { audioExts.contains(url.pathExtension.lowercased()) }
-    static func isFolder(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-
-    /// Read the file on this Mac. Nothing leaves the Mac here.
-    static func extract(_ url: URL) -> Extracted {
-        if isFolder(url) { return folder(url) }
-        let ext = url.pathExtension.lowercased()
-        let type = UTType(filenameExtension: ext)
-        if type?.conforms(to: .image) == true { return image(url) }
-        if ext == "pdf", let doc = PDFDocument(url: url) {
-            return Extracted(kind: "PDF, \(doc.pageCount) pages", text: String((doc.string ?? "").prefix(7000)), labels: [])
-        }
-        if textExts.contains(ext) || type?.conforms(to: .text) == true, let s = try? String(contentsOf: url, encoding: .utf8) {
-            return Extracted(kind: "text file", text: String(s.prefix(7000)), labels: [])
-        }
-        return Extracted(kind: type?.localizedDescription ?? "file", text: "", labels: [])
-    }
-
-    /// A folder: only the names and sizes of what is inside (never the contents of files).
-    private static func folder(_ url: URL) -> Extracted {
-        let fm = FileManager.default
-        let items = (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-        var lines: [String] = []
-        for u in items.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).prefix(80) {
-            let v = try? u.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
-            lines.append(v?.isDirectory == true ? "[folder] \(u.lastPathComponent)" : "\(u.lastPathComponent) (\((v?.fileSize ?? 0) / 1024) KB)")
-        }
-        return Extracted(kind: "folder with \(items.count) items", text: "Folder \(url.lastPathComponent) contains:\n" + lines.joined(separator: "\n"), labels: [])
-    }
-
-    private static func image(_ url: URL) -> Extracted {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return Extracted(kind: "image", text: "", labels: []) }
-        // A smaller copy reads much faster and loses nothing a person could read.
-        let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 2400]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) ?? CGImageSourceCreateImageAtIndex(src, 0, nil) else {
-            return Extracted(kind: "image", text: "", labels: [])
-        }
-        let ocr = VNRecognizeTextRequest()
-        ocr.recognitionLevel = .accurate
-        ocr.usesLanguageCorrection = true
-        ocr.automaticallyDetectsLanguage = false          // automatic detection took minutes on a big screenshot
-        if let supported = try? ocr.supportedRecognitionLanguages() {
-            let wanted = supported.filter { ["en", "ml", "hi", "ta", "te", "kn", "bn"].contains(String($0.prefix(2))) }
-            if !wanted.isEmpty { ocr.recognitionLanguages = wanted }
-        }
-        let classify = VNClassifyImageRequest()
-        try? VNImageRequestHandler(cgImage: cg, options: [:]).perform([ocr, classify])
-        let text = (ocr.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-        let labels = (classify.results ?? []).filter { $0.confidence > 0.3 }.prefix(6).map(\.identifier)
-        return Extracted(kind: "image", text: String(text.prefix(7000)), labels: Array(labels))
-    }
-}
 
 @MainActor
 final class DropModel: ObservableObject {
@@ -163,9 +105,12 @@ final class DropModel: ObservableObject {
         guard let url = files.first, !AssistantModel.shared.paused else { note = "The assistant is paused."; return }
         stage = .working; note = ""
         Task {
-            let ex = await Task.detached(priority: .userInitiated) { FileAnalyzer.extract(url) }.value
+            var ex = await Task.detached(priority: .userInitiated) { FileAnalyzer.extract(url) }.value
+            if let data = ex.audio, let heard = await transcribe(data, mime: ex.audioMime), !heard.isEmpty {
+                ex = Extracted(kind: ex.kind, text: ex.text + "\nSpeech heard in it:\n" + heard, labels: ex.labels)
+            }
             guard !ex.text.isEmpty || !ex.labels.isEmpty else {
-                result = "I can't read this kind of file yet (\(ex.kind)). You can still copy it to the clipboard."
+                result = "This file has nothing I can read or describe. You can still copy it to the clipboard."
                 stage = .result; return
             }
             var req = URLRequest(url: server.appendingPathComponent("api/analyze"))
@@ -181,6 +126,18 @@ final class DropModel: ObservableObject {
             }
             stage = .result; resultAt = Date()
         }
+    }
+
+    /// Short audio: the speech in it, through the same reader voice notes use (script and English).
+    private func transcribe(_ data: Data, mime: String) async -> String? {
+        var req = URLRequest(url: server.appendingPathComponent("api/shout"))
+        req.httpMethod = "POST"; req.timeoutInterval = 45
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["audioBase64": data.base64EncodedString(), "mime": mime, "filename": "dropped-audio", "source": "voice_note", "targetLang": "en-IN", "ttsProvider": MalayalamViewModel.shared.ttsProvider])
+        guard let (d, r) = try? await URLSession.shared.data(for: req), (r as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        let src = (j["sourceText"] as? String) ?? "", en = (j["translatedText"] as? String) ?? ""
+        return [src, en].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Read every dropped file URL from the providers, then act on them together.
