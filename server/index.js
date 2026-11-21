@@ -217,7 +217,9 @@ export function createServer(deps = {}) {
 
   function finalize(call, windowMs, superseded) {
     const events = H.strokesBetween(hub.getState(), call.t, call.t + windowMs);
-    const verdict = judge({ meaning: call.meaning, callT: call.t, events, baselineSpm: call.baselineSpm, windowMs });
+    const verdict = windowMs > 0
+      ? judge({ meaning: call.meaning, callT: call.t, events, baselineSpm: call.baselineSpm, windowMs })
+      : { obeyed: null, strokesUntilObeyed: null, deltaSpm: null, reason: 'not sure: superseded before any observation time' };
     const outcome = verdict.obeyed === true ? 'obeyed' : verdict.obeyed === false ? 'not_obeyed' : 'not_sure';
     record({ ...H.stripAudio(call), ...verdict, status: 'judged', stage: 'obedience', outcome, windowMs, strokesObserved: events.length, superseded });
   }

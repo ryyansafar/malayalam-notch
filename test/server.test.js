@@ -740,6 +740,25 @@ test('a new call ends the open observation window early; concurrent shouts get 4
   }
 });
 
+test('a call superseded in the same millisecond gets a not_sure verdict, not a fabricated one', async () => {
+  const s = await start({ matchMeaning: () => ({ meaning: 'stop', confidence: 'high', matchedKeyword: 'stop' }) });
+  try {
+    await post(s.port, '/api/stroke', strokes([100, 22, 7])); // rowing baseline at 22 spm
+    await post(s.port, '/api/shout', { text: 'one', targetLang: 'en-IN' });
+    await post(s.port, '/api/shout', { text: 'two', targetLang: 'en-IN' }); // same clock tick: zero observation window
+    const state = s.app.hub.getState();
+    assert.equal(state.trials.length, 1);
+    assert.equal(state.trials[0].superseded, true);
+    assert.equal(state.trials[0].windowMs, 0);
+    assert.equal(state.trials[0].outcome, 'not_sure'); // zero time observed: not "obeyed"
+    assert.equal(s.calls.evaluate.length, 0);
+    s.timers.fireTimeouts();
+    assert.equal(s.app.hub.getState().trials.length, 2);
+  } finally {
+    await s.stop();
+  }
+});
+
 // ---------- env loader, config, banner ----------
 
 test('parseEnv handles comments, quotes, export and malformed lines', () => {
