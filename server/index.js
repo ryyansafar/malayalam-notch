@@ -99,6 +99,22 @@ function readBody(req, limit) {
   });
 }
 
+// Routes that spend money or reach people (phone calls, the cloud agent) answer only the Mac app itself:
+// loopback peer, a localhost Host header (blocks DNS rebinding), no cross-site Origin, and a JSON content type
+// (which makes a web page's fetch need a CORS preflight that is never granted).
+function requireLocalApp(req) {
+  const peer = req.socket?.remoteAddress || '';
+  const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  const origin = req.headers.origin;
+  const type = String(req.headers['content-type'] || '').toLowerCase();
+  const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+  const localHost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  const sameSite = !origin || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin);
+  if (!loopback || !localHost || !sameSite || !type.startsWith('application/json')) {
+    throw new HttpError(403, 'local_only', 'This route only answers the Malayalam Notch app on this Mac.');
+  }
+}
+
 async function readJson(req, limit) {
   const text = (await readBody(req, limit)).toString('utf8');
   if (text.trim() === '') throw bad('empty_body', 'Request body must be JSON');
@@ -456,6 +472,7 @@ export function createServer(deps = {}) {
       sendJson(res, 200, { ok: true, spokenText, spokenLang, ttsAudioBase64: tts.audioBase64, mime: tts.mime || 'audio/wav', ttsProvider, tts: { provider: ttsProvider, latencyMs: ms(tts), source: lane(tts) } });
     },
     'POST /api/agent': async (req, res) => {
+      requireLocalApp(req);
       // Free-form request (Malayalam or English) -> a short reply plus validated tool calls.
       // The Mac app performs the actions; the reply can be spoken back in the user's language.
       const body = await readJson(req, cfg.maxBodyBytes);
@@ -482,6 +499,7 @@ export function createServer(deps = {}) {
       sendJson(res, 200, { ok: true, configured: missing.length === 0, missing });
     },
     'POST /api/call': async (req, res) => {
+      requireLocalApp(req);
       // Ring the user's phone with a Malayalam reminder (Sarvam Voice Agents). The Mac app asks for an
       // on-screen confirmation first; this route only places the call.
       const body = await readJson(req, cfg.maxBodyBytes);

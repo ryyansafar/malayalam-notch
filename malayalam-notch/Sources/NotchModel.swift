@@ -58,7 +58,7 @@ final class NotchModel: ObservableObject {
     }
 
     var shouldStayOpen: Bool {
-        dropHover || recording || isDragging || Date() < pinnedUntil || MalayalamViewModel.shared.phase != .idle
+        dropHover || recording || isDragging || Date() < pinnedUntil || AssistantModel.shared.pending != nil || MalayalamViewModel.shared.phase != .idle
     }
 }
 

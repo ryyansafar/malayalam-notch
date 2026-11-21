@@ -40,6 +40,7 @@ let now = Date()
             check("call text", t == "take my tablet"); check("call +2min", abs(d.timeIntervalSince(now) - 120) < 2)
         } else { check("remindCall parsed", false) }
         if case .callMe(let t) = p("call me to say dinner is ready") { check("call me text", t == "dinner is ready") } else { check("callMe parsed", false) }
+        print("DBG", p("ring my phone in 2 minutes to test"))
         check("gibberish is none", p("blah blah purple") == .none)
         check("empty is none", p("   ") == .none)
         print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

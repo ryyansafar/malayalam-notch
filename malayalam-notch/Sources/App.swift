@@ -22,7 +22,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var screen: NSScreen?
     private var timer: Timer?
     private var clickMonitor: Any?
-    private var dragBaseline = 0
+    private var dragBaseline = NSPasteboard(name: .drag).changeCount
     private var leaveSince: Date?
     private let model = NotchModel.shared
     private var dragPasteboardCount = -1
@@ -35,12 +35,12 @@ final class AppController: NSObject, NSApplicationDelegate {
         NowPlayingModel.shared.start()
         AssistantModel.shared.start()
         // Clicks pass straight through everywhere except over the visible island (updated every tick below).
-        model.onOpenChanged = { [weak self] open in if !open { self?.panel.ignoresMouseEvents = true } }
+        model.onOpenChanged = { [weak self] open in self?.panel.ignoresMouseEvents = !open }
         // A click anywhere outside the island (the menu bar, the area behind the notch, any other app)
         // belongs to whatever is there; it also folds the island away. Clicks inside never reach this monitor.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.model.isOpen, AssistantModel.shared.pending == nil else { return }
+                guard let self, self.model.isOpen, AssistantModel.shared.pending == nil, MalayalamViewModel.shared.phase == .idle else { return }
                 self.model.pinnedUntil = .distantPast
                 self.model.setOpen(false)
             }
@@ -133,8 +133,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         // Closer than that (a short way around the pill) the notch only "peeks".
         let pillW = model.closedWidth + (model.extended ? model.wingExtra : 0)
         let dx = abs(loc.x - midX)
-        let dy = topY - loc.y                                   // distance below the top edge
-        let onPill = dx < max(pillW / 2, 92.5) && dy < max(model.closedHeight, 37)   // traced notch box: 185 x 37
+        let onScreen = s.frame.contains(loc)                    // another display (e.g. one above) never counts
+        let dy = onScreen ? topY - loc.y : .greatestFiniteMagnitude   // distance below the top edge
+        let onPill = dx < 92.5 && dy < 37                        // the traced physical notch box (185 x 37), whatever the pill is showing
         let nearPill = dx < pillW / 2 + 14 && dy < model.closedHeight + 12
         let nearForDrag = dx < model.openSize.width / 2 && dy < 170
         let openRect = dx < model.openSize.width / 2 + model.topRadius && dy < model.openSize.height

@@ -54,7 +54,7 @@ const clip = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
 
 /** Validate one model-proposed tool call; return a clean { tool, args } or null. */
 export function cleanAction(a) {
-  if (!a || typeof a !== 'object' || typeof a.tool !== 'string' || !(a.tool in TOOLS)) return null;
+  if (!a || typeof a !== 'object' || typeof a.tool !== 'string' || !Object.hasOwn(TOOLS, a.tool)) return null;
   const spec = TOOLS[a.tool];
   const raw = a.args && typeof a.args === 'object' ? a.args : {};
   const args = {};

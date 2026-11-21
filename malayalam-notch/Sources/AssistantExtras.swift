@@ -12,6 +12,12 @@ extension AssistantModel {
 
     // MARK: Confirmation (tier T2)
     func requestConfirm(_ intent: MalayalamIntent, source: String) {
+        if pending != nil {
+            // One card at a time: never swap the action the user is about to approve.
+            Audit.record(AuditEntry(tool: Safety.name(of: intent), tier: Tier.outbound.rawValue, source: source, result: "dropped: another action is waiting for OK"))
+            feedback = "Answer the waiting question first."
+            return
+        }
         pending = PendingAction(intent: intent, source: source)
         NotchModel.shared.tab = .assistant
         NotchModel.shared.pinnedUntil = Date().addingTimeInterval(22)
@@ -19,7 +25,7 @@ extension AssistantModel {
     }
 
     func confirmPending() {
-        guard let p = pending else { return }
+        guard let p = pending, p.expires > Date() else { cancelPending(reason: "expired"); return }
         pending = nil
         feedback = MalayalamActions.perform(p.intent, confirmed: true, source: p.source)
     }
@@ -33,6 +39,7 @@ extension AssistantModel {
 
     // MARK: Phone call (Sarvam Voice Agents), falling back to speaking it here
     func callPhone(_ text: String, fallbackSpeak: Bool) {
+        guard !paused else { feedback = "The assistant is paused, so no call was placed."; return }
         let serverURL = URL(string: "http://localhost:\(ProcessInfo.processInfo.environment["MALAYALAM_PORT"] ?? "3000")")!
         Task {
             guard phone.hasPrefix("+") else {

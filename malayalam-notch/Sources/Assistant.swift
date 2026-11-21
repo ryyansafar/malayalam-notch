@@ -100,6 +100,10 @@ final class AssistantModel: ObservableObject {
     }
 
     private func fire(_ r: Reminder) {
+        if paused {
+            Audit.record(AuditEntry(tool: r.ring ? "remind_call" : "remind", tier: r.ring ? Tier.outbound.rawValue : Tier.reversible.rawValue, source: "timer", result: "skipped: assistant paused"))
+            return
+        }
         banner = "Reminder: \(r.text)"
         let c = UNMutableNotificationContent(); c.title = "Reminder"; c.body = r.text; c.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: r.id.uuidString, content: c, trigger: nil))
@@ -133,6 +137,7 @@ final class AssistantModel: ObservableObject {
     func submit(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if paused { feedback = "The assistant is paused — turn it back on in Activity."; return }
         commandText = ""
         if text.unicodeScalars.contains(where: { (0x0D00...0x0D7F).contains($0.value) }) {
             feedback = "Understanding…"
@@ -157,6 +162,7 @@ final class AssistantModel: ObservableObject {
 
     // MARK: Agent (Sarvam chat model via the local server)
     func askAgent(_ text: String) async {
+        guard !paused else { feedback = "The assistant is paused — turn it back on in Activity."; return }
         var req = URLRequest(url: server.appendingPathComponent("api/agent"))
         req.httpMethod = "POST"; req.timeoutInterval = 35
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
