@@ -85,6 +85,26 @@ Model answers are cached in `sarvam/cache` as `classify-*` and replay like the o
 
 Honest limits, from one live run of 10 English phrases on 21 Nov 2026 (not an accuracy figure): the model turned phrases such as "Pull with all your strength" and "Put your backs into it" into `speed_up` and refused "What time is it", but it also answered `ready` for "Everyone together now" and for "Oars up", which a coach could mean differently. A model decision is a guess shown as `confidence: model`; treat it as weaker than a rule match. Latency in that run was 0.3 to 1.6 s per phrase. The dashboard page is built separately and may not yet show `matchedBy`.
 
+## MacBook notch (macOS only)
+
+With the server running:
+
+```
+npm run notch
+```
+
+This compiles `notch-app/NotchApp.swift` with `swiftc` (no Xcode project, no extra dependencies; the build output lands in `git`-ignored `notch-app/build/`) and launches a borderless panel over the notch that loads `http://localhost:3000/notch.html` (port from `PORT`). It needs a notched MacBook to look right — the notch size is measured from `NSScreen.safeAreaInsets` at launch — and falls back to a floating pill at the top centre on other Macs.
+
+- **Collapsed:** phone dot + pulsing oar on the left of the camera, live spm on the right. Grey dot = no phone, green = connected, pulsing amber = waiting for the server (the page and the shell both retry every 2 s).
+- **Expanded:** hover, or any incoming call/verdict, grows the island (collapses after 6 s of quiet; focus and recording hold it open). It shows the call two lines + countdown ring + live spm, then the OBEYED / NOT OBEYED / NOT SURE badge with its reason, plus the latest archive entries.
+- **Voice out:** the call's TTS audio plays through the Mac speakers; **sound on** mutes, **replay call** / **replay coach** repeat it.
+- **Voice in:** **hold to talk** records up to 25 s with the Mac mic and sends it as a call. The first use needs a one-time click in System Settings → Privacy & Security → Microphone; if capture cannot work the button hides and says why.
+- **Voice notes:** dropping an audio file (`.opus`, `.ogg`, `.m4a`, `.mp3`, `.wav`, ≤ 5 MB, ≤ 30 s) onto the island sends it through the same path as the dashboard drop zone.
+- **Text:** the field takes English or Malayalam (macOS Malayalam keyboard, IME composition safe); Enter sends. Language chips mirror `/api/state.langs`.
+- **Quit:** the island's **quit** button, or Cmd-Q while hovering it.
+
+Honest status: on a 15-inch MacBook Air (M2, macOS 27) the build, notch placement, call expansion, the verdict and the timed collapse were verified with `screencapture`; microphone capture, audio output and Cmd-Q are implemented but were not exercised end-to-end here. `watchDirs` from `GET /api/providers` is shown when the watcher reports it; there is no `/api/state` watch line yet (TODO: revisit when the watcher session lands it).
+
 ## Phone over HTTPS
 
 Phone motion sensors (and the iOS permission prompt) need a secure page. Two ways.

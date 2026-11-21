@@ -46,6 +46,21 @@ A coach can also send the call as a WhatsApp voice note instead of shouting at t
 
 Every heard call — voice note, microphone or typed — is kept in the **Call archive** panel: searchable by translation, meaning or language, with the original file name and the obedience verdict filled in when the trial is judged. Audio bytes are never stored. The archive persists between restarts in `data/archive.jsonl` (git-ignored, capped at 500 entries). "Replay as call" re-sends the stored English text through the shout path; it does not replay the audio.
 
+## MacBook notch (macOS only)
+
+The whole drill also lives in the MacBook notch, like a Dynamic Island.
+
+```
+npm start        # the server must be running
+npm run notch    # builds notch-app/NotchApp.swift with swiftc and launches it
+```
+
+A borderless panel is parked over the notch (a floating pill on Macs without one; the size always comes from `NSScreen`, never hard-coded). Collapsed, the island merges with the notch: a phone-connected dot and a pulsing oar on the left, the live stroke rate on the right. Hovering, a call, or a verdict grows it; 6 s of quiet shrinks it. Expanded, it shows the call (English meaning, the spoken target-language line, a countdown ring for the 8 s window), plays the call through the Mac speakers (mute/replay buttons), and takes input itself: a text field that accepts the macOS Malayalam keyboard, a hold-to-talk mic button (25 s max), and a drop target for WhatsApp voice notes. Language chips and the latest archive entries are there too, so the demo runs without opening the dashboard.
+
+Quit with the island's **quit** button or Cmd-Q while hovering. The mic needs a one-time macOS permission (System Settings → Privacy & Security → Microphone); the button hides itself if capture cannot work.
+
+Verified on a 15-inch MacBook Air (M2, macOS 27): build, placement over the notch, expand on call, the verdict badge and archive row, and the 6 s collapse — all confirmed with screen captures. Microphone capture, Cmd-Q and audio playback paths are wired (embedded `Info.plist`, the WKWebView permission delegate, autoplay allowed) but were not exercised end-to-end on this machine. The page is served at `/notch.html` (the bare `/notch` route does not exist).
+
 ## Environment variables
 
 Names and defaults only; `.env` is git-ignored and values are never printed or logged.
@@ -93,7 +108,8 @@ shared/    stroke.js, calls.js, obedience.js  pure modules, run in browser and N
 sarvam/    client.js, record-fixtures.js, cache/  Sarvam client and recorded REPLAY fixtures
 smallest/  client.js                            optional smallest.ai client
 server/    index.js, hub.js, qr.js, env.js        server, SSE hub + state, QR, .env loading
-public/    phone.*, dashboard.*, vendor/          the two pages (vendored files in docs/VENDOR.md)
+public/    phone.*, dashboard.*, notch.*, vendor/   the pages (vendored files in docs/VENDOR.md)
+notch-app/ NotchApp.swift, Info.plist               macOS notch shell; build output is git-ignored
 test/      node:test suites, no network, no keys
 docs/      ARCHITECTURE.md, RUNBOOK.md, VENDOR.md, devin-tasks/
 ```
