@@ -15,10 +15,13 @@ Honest status: this is a pre-event spike. The call table is placeholder (UNVERIF
 | `smallest/client.js` | `createSmallestClient({ apiKey, mode, cacheDir })` with `speak()`, `speakMalayalam()` (Lightning v3.1, WAV) and `transcribe()` (Pulse). Same modes, cache folder and retry rule as the Sarvam client; cache files are prefixed `smallest-speak-` and `smallest-transcribe-`. Optional. |
 | `sarvam/classifier.js` | `createMeaningClassifier({ apiKey, mode, cacheDir })` with `classify({ text })` giving `{ meaning or null, confidence: 'model', source, latencyMs, model }`. Hosted chat model `sarvam-105b`, strict JSON schema, 6 s budget, cache files prefixed `classify-`. Optional, off by default. |
 | `sarvam/record-fixtures.js` | CLI that records live answers into `sarvam/cache` for offline REPLAY. |
-| `server/archive.js` | `createArchive({ file, maxEntries })`: capped, searchable archive of every heard call, persisted as JSON lines under `data/` (git-ignored). Audio bytes and keys are never stored; IO errors are logged and swallowed so archiving can never fail a shout. |
+| `server/archive.js` | `createArchive({ file, maxEntries })`: capped, searchable archive of every heard call, persisted as JSON lines under `data/` (git-ignored). Audio bytes and keys are never stored; IO errors are logged and swallowed so archiving can never fail a shout. `archiveCsv`/`archiveJson` build the text-only downloads. |
+| `server/watcher.js` | `createWatcher({ dirs, ingest })`: watches folders with `fs.watch`, waits for a new file's size to stop changing (finished writing), sniffs the magic bytes, dedupes on sha256(first 64 KB)+size and calls `ingest`. Never backfills files present at startup, never modifies sources. `resolveWatchDirs(env)` builds the dir list (default `~/Downloads/rowing-call-inbox`, extras via `WATCH_DIRS`, off via `WATCH_INBOX=0`). |
+| `server/ingest.js` | `npm run ingest -- <file>` CLI: sniff + limits, then `POST /api/shout` on the running server. |
 | `server/index.js` | HTTP(S) server: routes, validation, static files, the shout flow. Everything external is injected into `createServer`. |
 | `server/hub.js` | SSE hub, immutable session state, the spoken phrase table (`PHRASES`), validation of inbound bodies. |
 | `shared/audio-mime.js` | `mimeFromName(filename, reported)`: audio mime from the file extension when the browser reports none (WhatsApp `.opus`). Browser and Node. |
+| `shared/audio-sniff.js` | `sniffAudio(buf)` (magic bytes → `{ format, mime, label }`), `formatFromName`, `measureDuration` (Ogg granule position and WAV header exactly, size estimate otherwise), `cutOgg` (lossless first-N-seconds cut at an Ogg page boundary). Browser and Node. |
 | `server/qr.js` | QR SVG (qrcode-generator), landing page and message page HTML. |
 | `server/env.js` | `.env` parser, config validation, startup banner. Never prints values. |
 | `public/phone.*`, `public/dashboard.*` | Phone page and laptop dashboard. Built separately. |
@@ -43,6 +46,8 @@ dashboard -> POST /api/shout ----------> server/index.js
                                               |
                          GET /events (SSE) <--+--> phone plays the audio, dashboard shows evidence
 ```
+
+Other shout entry points all reach the same `POST /api/shout` path (one shout at a time): the watched-folder ingest (`server/watcher.js` → `POST /api/shout` on the same server), `npm run ingest`, the `/share` share target, the dashboard drop zone and the phone's hold-to-record button (`source: phone_mic`).
 
 Optional smallest.ai paths (all off by default; the flow above is unchanged without them):
 
@@ -74,9 +79,12 @@ Sarvam modes: `live` always calls the API and caches each success. `replay` read
 | `GET /api/state` | Current public state as JSON. |
 | `POST /api/phone` | Phone hello and heartbeat: `{ userAgent?, simulated? }`. |
 | `POST /api/stroke` | `{ events: [{ type: 'stroke', t, rateSpm, count }], sentAt? }`, at most 200 per batch. |
-| `POST /api/shout` | `{ text, targetLang }` or `{ audioBase64, mime?, targetLang }`. `targetLang` is one of `en-IN, hi-IN, bn-IN, od-IN, ta-IN`. Optional: `ttsProvider` (`sarvam` default, or `smallest`) and `coachPlayback` (boolean); bad values get a 400. Optional `source` (`voice_note`, `text`, `mic`; defaults to `mic` for audio and `text` for text) and `filename` (a file name, no path separators, at most 200 characters) are used only for the archive entry. |
+| `POST /api/shout` | `{ text, targetLang }` or `{ audioBase64, mime?, targetLang }`. `targetLang` is one of `en-IN, hi-IN, bn-IN, od-IN, ta-IN`. Optional: `ttsProvider` (`sarvam` default, or `smallest`) and `coachPlayback` (boolean); bad values get a 400. Optional `source` (`voice_note`, `text`, `mic`, `phone_mic`, `whatsapp_share`, `whatsapp_desktop`, `watched_folder`, `ingest`; defaults to `mic` for audio and `text` for text) and `filename` (a file name, no path separators, at most 200 characters) are used only for the archive entry. |
+| `POST /share` | PWA share target (multipart): sniffs the shared audio, enforces the 5 MB / 30 s limits, offers a token-held lossless Ogg cut for long notes and runs it through the same shout path. Answers with a small HTML page, not JSON. |
+| `POST /share/cut` | `{ token }` form post: sends the held first-30 s cut of an earlier shared note (single-use, expires). |
 | `GET /api/archive` | `{ ok, entries }` newest first; `?q=` searches the translation, meaning, filename and language. Persisted in `data/archive.jsonl`, capped at 500 entries. An entry is written when a call is heard (`verdict: null`) and updated when the trial is judged. |
-| `GET /api/providers` | `{ providers: { sarvam: { configured, mode }, smallest: { configured, mode } }, ttsProviders, defaultTtsProvider, coachPlayback, secondEar }`, plus `modelFallback: true` only when the model fallback is active. Booleans and mode names only, never keys. |
+| `GET /api/archive.json`, `GET /api/archive.csv` | The archive as a download (`Content-Disposition: attachment`), text only — audio is never archived. CSV quotes cells with commas, quotes or line breaks and doubles embedded quotes. |
+| `GET /api/providers` | `{ providers: { sarvam: { configured, mode }, smallest: { configured, mode } }, ttsProviders, defaultTtsProvider, coachPlayback, secondEar, watchDirs }`, plus `modelFallback: true` only when the model fallback is active. Booleans and mode names only, never keys. `watchDirs` lists the folders the voice-note watcher is reading (the dashboard shows a "watching:" line). |
 
 Errors are JSON `{ ok: false, error: { code, message } }`: 400 validation, 404, 405, 413 (body over 8 MB), 429 (a shout is already in flight), 502 (Sarvam call failed), 503 (`no_replay_available`, or QR unavailable). No stack traces leave the process.
 

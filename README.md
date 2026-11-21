@@ -36,15 +36,27 @@ npm start
 - No key or no network: `SARVAM_MODE=replay npm start` plays recorded answers with a REPLAY badge. `npm run record` records fixtures ahead of time (needs a key).
 - Demo steps: see [DEMO.md](DEMO.md).
 
-## Voice-note inbox
+## WhatsApp voice notes
 
-A coach can also send the call as a WhatsApp voice note instead of shouting at the laptop mic.
+A coach can send the call as a WhatsApp voice note instead of shouting at the laptop mic. **Nothing is sent automatically from or to WhatsApp**: there is no bot and no WhatsApp account access — the app only reads audio files that were placed in a watched folder or dropped on the dashboard. Transcription is Sarvam cloud speech-to-text, so the audio leaves the laptop.
 
-1. In WhatsApp, long-press the voice message, choose **Share**, and save the file (`.opus`) somewhere you can reach it.
-2. On the dashboard, drop the file onto the **Voice-note inbox** panel (or click it to choose a file). `.opus`, `.ogg`, `.m4a`, `.mp3` and `.wav` are accepted; files over 5 MB or longer than 30 s are refused, because that is the Sarvam REST speech-to-text limit.
-3. The note goes through the same path as a shout: transcribed to English by **Sarvam cloud speech-to-text** (not local — the audio leaves the laptop), matched to a meaning, spoken to the rower and judged on stroke rate.
+Four ways in, all through the same shout path:
 
-Every heard call — voice note, microphone or typed — is kept in the **Call archive** panel: searchable by translation, meaning or language, with the original file name and the obedience verdict filled in when the trial is judged. Audio bytes are never stored. The archive persists between restarts in `data/archive.jsonl` (git-ignored, capped at 500 entries). "Replay as call" re-sends the stored English text through the shout path; it does not replay the audio.
+1. **Watched inbox folder (WhatsApp Desktop / WhatsApp Web).** On startup the server creates and watches `~/Downloads/rowing-call-inbox`. In WhatsApp Desktop on the MacBook, right-click a voice note → **Download** (or Save as) → save it there. The file is read once it has finished writing, run through the shout path and archived with source `whatsapp_desktop`. Files already in the folder at startup are never picked up (no backfill), non-audio and over-5 MB files are ignored, and the source file is only ever read — never deleted, moved or modified. `WATCH_DIRS` (comma-separated absolute paths, `~` allowed) adds more folders; `WATCH_INBOX=0` turns the default one off. The dashboard shows a "watching:" line.
+   - WhatsApp Desktop keeps downloaded media under `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media/` (the exact layout varies by version — check yours). It is **not** watched by default: every voice note from every chat saved there would be sent to Sarvam. If you add it to `WATCH_DIRS`, the server prints a warning at startup.
+2. **Dashboard drop zone.** Drop the file onto the **Voice-note inbox** panel (or click to choose).
+3. **`npm run ingest -- <file>`** — sends one file to the running server, exactly like a drop (`--lang=hi-IN` picks the rower's language, `--port` the server port).
+4. **Phone share sheet.** The phone page is an installed-PWA share target: sharing a voice note to it posts the file to `/share` and answers with a small page.
+
+Accepted formats (checked by the file's own magic bytes, not the name or the browser's mime guess): Ogg/Opus (WhatsApp `PTT-*.opus`, `.ogg`, `.oga`), WAV, MP3 (ID3 or frame sync), M4A/MP4 (`ftyp`), AAC/ADTS, AMR (`.amr`, `.awb`), WebM and FLAC. Anything else gets a plain "not a recognised audio file" message.
+
+Limits are enforced honestly: **5 MB** max, and **30 s** max (the Sarvam REST speech-to-text limit). Duration is measured exactly for Ogg (last granule position) and WAV (header) and estimated from size otherwise. A longer Ogg note offers a **"use the first 30 s"** button — a lossless cut at an Ogg page boundary, nothing re-encoded; longer notes in other formats just say so. Audio is never silently truncated.
+
+Every heard call — voice note, microphone, phone mic or typed — is kept in the **Call archive** panel: searchable by translation, meaning or language, filterable per language code (the code Sarvam reported — a language, never a dialect claim), with a summary strip (notes today, languages seen, obeyed / not obeyed / not sure), a **copy** button per entry, and **Export JSON / CSV** downloads. Audio bytes are never stored. The archive persists between restarts in `data/archive.jsonl` (git-ignored, capped at 500 entries). "Replay as call" re-sends the stored English text through the shout path; it does not replay the audio.
+
+## Phone microphone
+
+The rower's phone is also the coach's microphone: a big **HOLD TO CALL** button on the phone page records while it is held (MediaRecorder, `audio/webm;codecs=opus` with fallbacks, 25 s max with a live timer) and uploads the clip as a `phone_mic` shout. The microphone is asked for on the first press and only ever open while the button is held; denied permission, missing hardware and missing APIs each get a clear message. Recording never interrupts stroke detection — the rower can keep rowing while the coach dictates. HTTPS is required (use a tunnel or the self-signed route in the runbook).
 
 ## MacBook notch (macOS only)
 
@@ -73,6 +85,9 @@ Names and defaults only; `.env` is git-ignored and values are never printed or l
 | `CERT_FILE`, `KEY_FILE` | empty | Set both to serve HTTPS locally. |
 | `SMALLEST_API_KEY` | empty | smallest.ai key for the optional second voice (Lightning), coach playback and second ear (Pulse). Follows `SARVAM_MODE`. |
 | `SECOND_EAR` | 0 | `1` also transcribes each spoken shout with smallest.ai Pulse and compares the two meanings. Off by default. |
+| `WATCH_INBOX` | 1 | `0` turns off the default voice-note inbox folder `~/Downloads/rowing-call-inbox`. |
+| `WATCH_DIRS` | empty | Comma-separated extra folders to watch for voice notes (absolute paths, `~` allowed). |
+| `WATCH_LANG` | en-IN | Rower language used for shouts ingested from watched folders. |
 
 ## Architecture
 
@@ -104,10 +119,11 @@ Only the translation and speech steps touch a network. The keyword matcher, stro
 ## Project structure
 
 ```
-shared/    stroke.js, calls.js, obedience.js  pure modules, run in browser and Node
+shared/    stroke.js, calls.js, obedience.js, audio-sniff.js, audio-mime.js  pure modules, run in browser and Node
 sarvam/    client.js, record-fixtures.js, cache/  Sarvam client and recorded REPLAY fixtures
 smallest/  client.js                            optional smallest.ai client
 server/    index.js, hub.js, qr.js, env.js        server, SSE hub + state, QR, .env loading
+           archive.js, watcher.js, ingest.js      call archive, folder watcher, ingest CLI
 public/    phone.*, dashboard.*, notch.*, vendor/   the pages (vendored files in docs/VENDOR.md)
 notch-app/ NotchApp.swift, Info.plist               macOS notch shell; build output is git-ignored
 test/      node:test suites, no network, no keys

@@ -45,17 +45,27 @@ Replay matches on the exact input: the same audio bytes, or the same typed text.
 
 Do not put hand-written or synthetic files in `sarvam/cache`. Everything there is shown to an audience as a recorded Sarvam answer.
 
-## Voice-note inbox
+## WhatsApp voice notes
 
-A WhatsApp voice note can be used as a rowing call.
+A WhatsApp voice note can be used as a rowing call — nothing is sent automatically from or to WhatsApp (no bot, no WhatsApp account access; the app only reads files placed in a watched folder or uploaded). Transcription is **Sarvam cloud speech-to-text**: the audio leaves the laptop; it is not local.
 
-1. In WhatsApp, long-press the voice message, tap **Share**, and save the file (WhatsApp voice notes are `.opus`).
-2. On the laptop dashboard, drop the file on the **Voice-note inbox** panel, or click the zone to pick a file. Accepted: `.opus`, `.ogg`, `.m4a`, `.mp3`, `.wav`, up to **5 MB** and **30 seconds** — the Sarvam REST speech-to-text limit.
-3. The file is sent to `POST /api/shout` as base64 with the dashboard's selected target language, then follows the normal path (translate, match, speak, judge). The browser mime of a `.opus` file is often empty or `audio/ogg`; the dashboard infers it from the extension when needed.
+**Watched inbox folder (WhatsApp Desktop / WhatsApp Web on the MacBook).** The server creates and watches `~/Downloads/rowing-call-inbox` at startup. In WhatsApp Desktop, right-click a voice note → **Download** or **Save as** → save it into that folder. Within a second or two of the file finishing writing it is posted to the shout path (rower language from `WATCH_LANG`, default `en-IN`) and archived as `whatsapp_desktop`. Files already there at startup are ignored (no backfill); non-audio files and files over 5 MB are ignored; source files are only read, never modified. The startup banner and the dashboard show `watching: <folders>`.
 
-Transcription is **Sarvam cloud speech-to-text**: the audio leaves the laptop; it is not local.
+- Extra folders: `WATCH_DIRS="~/voice-notes,/abs/dir" npm start` (comma-separated, `~` allowed, relative paths are skipped with a warning). Extra folders tag notes `watched_folder`, except paths containing `whatsapp`, which tag `whatsapp_desktop`.
+- `WATCH_INBOX=0` disables the default folder; `WATCH_DIRS` still applies.
+- WhatsApp Desktop also keeps downloaded media under `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media/` — the exact layout varies by version, so check yours first. **It is not watched by default**: every voice note from every chat saved there would be sent to Sarvam. Adding it to `WATCH_DIRS` prints a one-line warning at startup.
 
-Every heard call is filed in the archive — `GET /api/archive` (newest first, `?q=` searches the translation, meaning, filename and language) and the dashboard **Call archive** panel. Entries keep the source (`voice_note`, `mic`, `text`), the original file name, the detected language, the translated text, the matched meaning and confidence, and the obedience verdict once the trial is judged. They persist in `data/archive.jsonl` (git-ignored, created on demand, capped at 500 entries, oldest dropped). Audio bytes are never stored, so "Replay as call" re-sends the translated text, not the audio.
+**Other ways in.**
+
+- Dashboard **Voice-note inbox** drop zone (click or drop).
+- `npm run ingest -- ~/Downloads/PTT-20261121-WA0001.opus [--lang=hi-IN] [--port=3000]` — one file through the same path, against the running server.
+- Phone share sheet → installed PWA share target posts to `/share` and shows a small answer page.
+
+**Formats and limits.** Ogg/Opus (`.opus`, `.ogg`, `.oga` — WhatsApp `PTT-*` files), WAV, MP3, M4A/MP4, AAC/ADTS, AMR (`.amr`, `.awb`), WebM and FLAC are detected from the file's own magic bytes; a mislabelled or unsupported file gets a plain rejection. Max **5 MB**; clips over **30 s** are refused (the Sarvam REST limit) — a long Ogg offers a lossless "use the first 30 s" cut at a page boundary, other formats must be shortened first. Audio is never silently truncated.
+
+**Phone microphone.** The phone page has a **HOLD TO CALL** button: hold, dictate the call (max 25 s, timer shown), release to send it as a `phone_mic` shout. The microphone is requested on the first press and used only while held; stroke detection keeps running. Needs HTTPS (see below).
+
+**Archive.** `GET /api/archive` (newest first, `?q=` searches), plus `GET /api/archive.json` and `GET /api/archive.csv` downloads — text only, no audio. Entries keep the source (`voice_note`, `mic`, `phone_mic`, `text`, `whatsapp_share`, `whatsapp_desktop`, `watched_folder`, `ingest`), file name, the language code Sarvam reported (a language, never a dialect claim), translated text, meaning and the verdict once judged. They persist in `data/archive.jsonl` (git-ignored, capped at 500, oldest dropped).
 
 ## smallest.ai extras (optional)
 
