@@ -51,7 +51,8 @@ struct NotchRootView: View {
                 .padding(.horizontal, model.topRadius + 14)
                 .padding(.top, model.closedHeight + 4)
                 .padding(.bottom, 14)
-                .opacity(model.isOpen ? 1 : 0)
+                .opacity(model.isOpen && !dropTakeover ? 1 : 0)      // while dropping, only the two big areas are visible
+                .allowsHitTesting(!dropTakeover)
                 .blur(radius: model.isOpen ? 0 : 8)
                 .animation(.easeOut(duration: model.isOpen ? 0.22 : 0.1).delay(model.isOpen ? 0.1 : 0), value: model.isOpen)
                 .allowsHitTesting(model.isOpen)
@@ -95,6 +96,8 @@ struct NotchRootView: View {
         .frame(height: model.closedHeight)
     }
 
+    @ObservedObject private var drop = DropModel.shared
+    private var dropTakeover: Bool { drop.armed || drop.stage != .idle }
     @State private var rootTargeted = false
     @Namespace private var tabNS
 
@@ -105,7 +108,7 @@ struct NotchRootView: View {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).symbolEffect(.bounce, value: on)
+                Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).symbolEffect(.bounce, value: on).symbolEffect(.bounce, value: tab == .shelf ? drop.shelfPulse : 0)
                 if on { Text(label).font(.system(size: 11, weight: .semibold)) }
             }
             .foregroundStyle(on ? Color.white : Color.white.opacity(Design.Text.secondary))

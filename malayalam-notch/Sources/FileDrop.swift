@@ -83,6 +83,8 @@ final class DropModel: ObservableObject {
     @Published var files: [URL] = []
     @Published var result = ""
     @Published var note = ""
+    @Published var flying = false                // the file glides toward the Shelf tab
+    @Published var shelfPulse = 0                // bumps when it arrives, so the tab icon bounces
     @Published var waiting: [URL] = []           // copied by us and still on the clipboard, not yet pasted
     private var resultAt: Date?
     private var waitingSince: Date?
@@ -131,14 +133,18 @@ final class DropModel: ObservableObject {
         pb.writeObjects(files.map { $0 as NSURL })
         waiting = files; waitingSince = Date(); waitingCount = pb.changeCount; reminded = false
         Audit.record(AuditEntry(tool: "copy_to_clipboard", tier: Tier.reversible.rawValue, source: "drop", result: "\(files.count) item(s)"))
-        note = files.count == 1 ? "On your clipboard. Paste it anywhere." : "\(files.count) items on your clipboard. Paste them anywhere."
+        ShelfModel.shared.add(files)
+        note = files.count == 1 ? "On your clipboard and kept on the shelf." : "\(files.count) items on your clipboard and kept on the shelf."
+        flying = false
         stage = .result
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { if self.result.isEmpty { self.dismiss() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { withAnimation(.spring(response: 0.8, dampingFraction: 0.82)) { self.flying = true } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.15) { self.shelfPulse += 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { if self.result.isEmpty { self.dismiss() } }
     }
 
     func keepOnShelf() { ShelfModel.shared.add(files); note = "Kept on the shelf." }
     func copyResult() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(result, forType: .string); note = "Explanation copied." }
-    func dismiss() { stage = .idle; armed = false; files = []; result = ""; note = "" }
+    func dismiss() { stage = .idle; armed = false; files = []; result = ""; note = ""; flying = false }
     func clearWaiting() { waiting = []; waitingSince = nil }
 
     /// Something we copied is still waiting: remind once after 5 minutes. Copying anything else clears it.
@@ -215,7 +221,11 @@ struct DropZones: View {
             Text(hint).font(Design.Font.body).multilineTextAlignment(.center).foregroundStyle(.white.opacity(Design.Text.secondary)).padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(highlight ? MalayalamTheme.accent.opacity(0.16) : Color(white: 0.09)))
+        .background(ZStack {
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.black)
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color(white: 0.09))
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(MalayalamTheme.accent.opacity(highlight ? 0.16 : 0))
+        })
         .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(MalayalamTheme.accent.opacity(highlight ? 0.8 : 0), lineWidth: 1.4))
         .scaleEffect(highlight ? 1.01 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: highlight)
@@ -238,6 +248,14 @@ struct DropResult: View {
                 HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Reading it…").font(Design.Font.body).foregroundStyle(.white.opacity(Design.Text.secondary)) }
             } else if d.result.isEmpty {
                 Text(d.note).font(Design.Font.title).foregroundStyle(MalayalamTheme.accent)
+                if let f = d.files.first {
+                    // the file glides up and to the left, into the Shelf tab
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: f.path)).resizable().frame(width: 96, height: 96)
+                        .frame(maxWidth: .infinity)
+                        .offset(x: d.flying ? -200 : 0, y: d.flying ? -150 : 0)
+                        .scaleEffect(d.flying ? 0.18 : 1)
+                        .opacity(d.flying ? 0 : 1)
+                }
             } else {
                 ScrollView {
                     Text(d.result).font(.system(size: 15)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
@@ -252,7 +270,7 @@ struct DropResult: View {
         }
         .padding(Design.Space.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color(white: 0.09)))
+        .background(ZStack { RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.black); RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color(white: 0.09)) })
     }
 }
 
@@ -264,8 +282,8 @@ struct DropLayer: View {
             if d.stage != .idle { DropResult() }
             else if d.armed { DropZones() }
         }
-        .animation(.smooth(duration: 0.25), value: d.armed)
-        .animation(.smooth(duration: 0.25), value: d.stage)
+        .animation(.easeOut(duration: 0.18), value: d.armed)
+        .animation(.easeOut(duration: 0.18), value: d.stage)
     }
 }
 
