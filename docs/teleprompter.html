@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Malayalam Notch teleprompter</title>
+<style>
+:root{--bg:#0b0b0a;--ink:#f1efe6;--dim:#8a887e;--olive:#b7c48f;--cue:#2a2f1e}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Inter",Helvetica,Arial,sans-serif}
+#bar{position:fixed;inset:0 0 auto 0;display:flex;gap:14px;align-items:center;padding:10px 18px;background:#141412;border-bottom:1px solid #26261f;z-index:5;font-size:14px;color:var(--dim)}
+#bar button{background:#22221e;color:var(--ink);border:1px solid #33332b;border-radius:10px;padding:8px 14px;font-size:15px;cursor:pointer}
+#bar button.on{background:var(--olive);color:#111}
+#bar input[type=range]{width:140px}
+#bar .sp{flex:1}
+#prog{position:fixed;top:54px;left:0;height:3px;background:var(--olive);width:0;z-index:5}
+#stage{position:absolute;top:57px;bottom:0;left:0;right:0;overflow-y:scroll;scroll-behavior:auto}
+#doc{max-width:1100px;margin:0 auto;padding:28vh 56px 60vh}
+.sec{margin:0 0 70px}
+.sec h2{font-size:.9em;letter-spacing:.14em;text-transform:uppercase;color:var(--olive);margin:0 0 18px}
+.say{font-size:var(--fs,54px);line-height:1.32;font-weight:600;margin:0 0 22px}
+.do{font-size:calc(var(--fs,54px)*.55);line-height:1.35;background:var(--cue);color:var(--olive);padding:12px 18px;border-radius:14px;margin:0 0 22px;font-weight:600}
+.do b{color:#fff}
+.note{font-size:calc(var(--fs,54px)*.5);color:var(--dim);margin:0 0 22px}
+.mirror #doc{transform:scaleX(-1)}
+.check li{font-size:calc(var(--fs,54px)*.6);line-height:1.5;margin:0 0 6px;list-style:none}
+.check li:before{content:"☐  ";color:var(--olive)}
+</style></head><body>
+<div id="bar">
+  <button id="play">Play (space)</button>
+  <label>Speed <input id="speed" type="range" min="10" max="140" value="48"></label>
+  <label>Size <input id="size" type="range" min="32" max="96" value="54"></label>
+  <button id="mir">Mirror</button>
+  <button id="top">Top</button>
+  <span class="sp"></span><span id="time">0:00</span>
+  <span>↑ ↓ jump section · space play/pause · R restart</span>
+</div>
+<div id="prog"></div>
+<div id="stage"><div id="doc"></div></div>
+<script>
+const S=[
+{t:"Before you start",c:true,items:["Server up, Wi-Fi good, volume up, Do Not Disturb on","Permissions allowed: mic, Full Disk Access, Accessibility, Screen Recording","FMK saved under Me, People. His latest voice note downloaded in WhatsApp","Photo, PDF, folder on the Desktop. demo-samples/PTT-test-2.opus visible","Shake the file 40 to 90 points below the top edge (not at the very top)"]},
+{t:"0:00 · Hook",say:"Hi, I'm Ryyan. In a lot of families, love arrives as a Malayalam voice note. If you didn't grow up reading Malayalam, or you can't play audio right now, you're stuck guessing. Malayalam Notch fixes that, from the one place that's always in view: the notch.",do:"Hover the notch. It opens."},
+{t:"0:25 · Voice note",do:"Drag <b>PTT-test-2.opus</b> onto the island.",say:"I drop a voice note. Sarvam's Saaras model reads it three ways at once: Malayalam script, English letters, and English. About a second and a half.",do2:"Press the speaker.",say2:"Sarvam's Bulbul speaks it back. And I can switch to smallest dot A I's Lightning voice to compare.",do3:"Tap Voice 1, choose Voice 2.",note:"Say it: these samples are synthetic speech, so this proves the pipeline. Give me a real voice note after."},
+{t:"1:10 · Just talk",do:"Tap the mic. Say: <b>set a timer for two minutes</b>.",say:"I tap once and just talk. It stops listening when I stop. And the notch itself becomes a live timer."},
+{t:"1:30 · Assistant",do:"Assistant tab. Type: <b>remind me tomorrow at six am to call Amma</b>.",say:"Ask in English or Malayalam. The time maths is done in code, not guessed by the model, and the reminder is spoken aloud."},
+{t:"1:50 · It asks first",do:"Type: <b>ring my phone in two minutes to test</b>. Confirm card appears. Press <b>Cancel</b>. Open the Activity tab.",say:"Anything that reaches a person always asks first, and shows the exact action. No answer in twenty seconds means no. Every action is logged, one switch pauses everything, and the cloud model can only pick from a fixed list. No shell. No deleting files."},
+{t:"2:20 · Drag anything in",do:"Drag the <b>photo</b> toward the notch. <b>Shake it twice.</b> Drop on <b>Analyze</b>.",say:"Drag any file or folder at the notch and shake it. Two big areas open. Analyze reads it on the Mac. Pictures, PDFs, Office documents, folders, audio, video. Only the text it finds goes to Sarvam, for a plain explanation, in any language."},
+{t:"2:45 · Clipboard and Shelf",do:"Drag the <b>PDF</b>, shake, drop on <b>Clipboard</b>. The Shelf opens.",say:"Or I drop it on the clipboard. It opens the shelf with the file, ready to paste or drag out anywhere."},
+{t:"3:10 · The WhatsApp loop",do:"Say: <b>open the latest voice message from FMK on WhatsApp</b>. Answer the questions. Approve the card.",say:"Now the loop that matters most to me. I ask for the latest voice note from a friend. It finds it, reads it, and asks, do you want to reply? I answer out loud. It asks what to say, text or voice, shows me the exact message to approve, and then sends it.",note:"If it fails: say it needs the macOS permissions from the checklist, and move on."},
+{t:"4:00 · See my screen",do:"Assistant tab. Tap <b>See my screen</b>.",say:"It can also read what is on my screen, only the text, and tell me what to do next, acting only through the same confirmed actions."},
+{t:"4:15 · Close",say:"Under the hood: Sarvam's Saaras, Bulbul and chat model. smallest dot A I for a second voice. SwiftUI with on-device Vision. A local server that holds the keys. Built with Devin and AI agents, and the Malayalam on screen always comes from Sarvam. The honest limits: clips over thirty seconds, phone calls need a Sarvam number, and my samples are synthetic. So please, hand me a real voice note.",do:"Hand over the laptop."},
+{t:"If you get 90 seconds",say:"Do these four: Voice note, Shake and Analyze, the confirm card, then the close."}
+];
+const doc=document.getElementById('doc');
+S.forEach((s,i)=>{const d=document.createElement('div');d.className='sec';d.id='s'+i;
+ let h='<h2>'+s.t+'</h2>';
+ if(s.c){h+='<ul class="check">'+s.items.map(x=>'<li>'+x+'</li>').join('')+'</ul>'}
+ if(s.do)h+='<div class="do">DO: '+s.do+'</div>';
+ if(s.say)h+='<p class="say">'+s.say+'</p>';
+ if(s.do2)h+='<div class="do">DO: '+s.do2+'</div>';
+ if(s.say2)h+='<p class="say">'+s.say2+'</p>';
+ if(s.do3)h+='<div class="do">DO: '+s.do3+'</div>';
+ if(s.note)h+='<p class="note">'+s.note+'</p>';
+ d.innerHTML=h;doc.appendChild(d)});
+const st=document.getElementById('stage'),btn=document.getElementById('play'),sp=document.getElementById('speed'),sz=document.getElementById('size'),prog=document.getElementById('prog'),tm=document.getElementById('time');
+let run=false,last=0,acc=0,t0=0,el=0;
+function frame(ts){if(run){if(!last)last=ts;const dt=(ts-last)/1000;last=ts;acc+=sp.value*dt;const whole=Math.floor(acc);if(whole){st.scrollTop+=whole;acc-=whole}el+=dt;
+ const m=st.scrollHeight-st.clientHeight;prog.style.width=(m?st.scrollTop/m*100:0)+'%';tm.textContent=Math.floor(el/60)+':'+String(Math.floor(el%60)).padStart(2,'0')}else last=0;requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+function toggle(){run=!run;btn.classList.toggle('on',run);btn.textContent=run?'Pause (space)':'Play (space)'}
+btn.onclick=toggle;
+sz.oninput=()=>document.documentElement.style.setProperty('--fs',sz.value+'px');
+document.getElementById('mir').onclick=e=>{document.body.classList.toggle('mirror');e.target.classList.toggle('on')};
+document.getElementById('top').onclick=()=>{st.scrollTop=0;el=0};
+function jump(n){const secs=[...document.querySelectorAll('.sec')];let idx=secs.findIndex(s=>s.getBoundingClientRect().top>st.getBoundingClientRect().top+40);if(idx<0)idx=secs.length;const to=Math.max(0,Math.min(secs.length-1,idx-1+n));st.scrollTop=secs[to].offsetTop-st.clientHeight*.28}
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();toggle()}else if(e.key==='ArrowDown'){e.preventDefault();jump(1)}else if(e.key==='ArrowUp'){e.preventDefault();jump(-1)}else if(e.key==='r'||e.key==='R'){st.scrollTop=0;el=0}else if(e.key==='+'||e.key==='='){sp.value=+sp.value+6}else if(e.key==='-'){sp.value=+sp.value-6}});
+</script></body></html>
