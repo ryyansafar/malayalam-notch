@@ -97,7 +97,10 @@ enum MalayalamActions {
         case .tidyDesktop:
             AssistantModel.shared.scanDesktop()
             NotchModel.shared.tab = .assistant
-            return "Here's the plan — press Tidy to apply it"
+            // Tidying moves files, so it always shows a confirm card with the exact count first.
+            if AssistantModel.shared.plan.isEmpty { return "The desktop is already tidy" }
+            AssistantModel.shared.requestConfirm(.tidyApply, source: "rule")
+            return "Check the card to tidy your desktop"
         case .translateClipboard:
             AssistantModel.shared.translateClipboard()
             return "Translating the clipboard…"

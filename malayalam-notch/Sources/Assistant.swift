@@ -159,7 +159,11 @@ final class AssistantModel: ObservableObject {
         // quick local rules only handle one simple command and would grab just the first words.
         let spokenSentence = english.split(separator: " ").count > 9 || english.range(of: #"\b(can you|could you|would you|tell me|what was|what is|what'?s|accordingly|reply to)\b|\?"#, options: [.regularExpression, .caseInsensitive]) != nil
         let multiStep = spokenSentence || english.range(of: #"\b(then|after that|summari[sz]e|summary|youtube|watch|and tell|and message|and send)\b|,.+,"#, options: [.regularExpression, .caseInsensitive]) != nil
-        let intent = multiStep ? MalayalamIntent.none : MalayalamIntentParser.parse(english)
+        // Requests that have their own dedicated flow always stay local, however long the sentence is.
+        let parsed = MalayalamIntentParser.parse(english)
+        var dedicated = false
+        switch parsed { case .lookAtScreen, .whatsappVoice: dedicated = true; default: break }
+        let intent = (multiStep && !dedicated) ? MalayalamIntent.none : parsed
         if intent != .none {
             let line = MalayalamActions.perform(intent)
             feedback = line.isEmpty ? "Done" : line
