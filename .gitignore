@@ -14,3 +14,7 @@ notch-bn/
 
 # keep the README screenshots
 !docs/screenshots/*.png
+
+# live-run recordings can contain what the user said out loud: never commit new ones
+sarvam/cache/*.json
+!sarvam/cache/.gitkeep
